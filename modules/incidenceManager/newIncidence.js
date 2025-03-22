@@ -1,17 +1,14 @@
-// vicebot/modules/incidenceManager/newIncidence.js
 const config = require('../../config/config');
 const incidenciasDB = require('./incidenceDB');
 const { MessageMedia } = require('whatsapp-web.js');
 const moment = require('moment-timezone');
+const { v4: uuidv4 } = require('uuid');
 
 /**
- * Procesa un mensaje de incidencia proveniente del grupo principal.
- * Realiza:
- *  - Normalización del mensaje.
- *  - Detección de palabras clave y determinación de categorías.
- *  - Construcción y registro de la incidencia en la BD.
- *  - Reenvío de la incidencia a los grupos destino según la categoría.
- *  - Notificación al grupo principal con el resumen de equipos.
+ * processNewIncidence - Procesa un mensaje de incidencia proveniente del grupo principal.
+ * Realiza la detección de categorías, descarga media (si existe), genera un UID único,
+ * construye el objeto incidencia y lo inserta en la BD. Además, reenvía el mensaje a los grupos destino
+ * incluyendo el UID en el mensaje reenviado.
  */
 async function processNewIncidence(client, message) {
   const chat = await message.getChat();
@@ -46,7 +43,7 @@ async function processNewIncidence(client, message) {
   }
   console.log(`Registrando incidencia para categorías ${foundCategories.join(', ')}: ${message.body}`);
 
-  // Si hay más de una categoría, se inicializa el objeto de confirmaciones.
+  // Inicializar objeto de confirmaciones si hay más de una categoría.
   let confirmaciones = null;
   if (foundCategories.length > 1) {
     confirmaciones = {};
@@ -55,7 +52,7 @@ async function processNewIncidence(client, message) {
     });
   }
   
-  // Descarga de media, si existe.
+  // Descarga de media (si existe)
   let mediaData = null;
   if (message.hasMedia) {
     try {
@@ -71,8 +68,12 @@ async function processNewIncidence(client, message) {
     }
   }
   
-  // Construcción del objeto incidencia.
+  // Generar un identificador único para esta incidencia.
+  const uniqueMessageId = uuidv4();
+
+  // Construir el objeto incidencia.
   const nuevaIncidencia = {
+    uniqueMessageId,
     descripcion: message.body,
     reportadoPor: message.author ? message.author : message.from,
     fechaCreacion: new Date().toISOString(),
@@ -83,7 +84,7 @@ async function processNewIncidence(client, message) {
     media: mediaData ? mediaData.data : null
   };
   
-  // Inserción de la incidencia en la base de datos.
+  // Insertar la incidencia en la base de datos.
   incidenciasDB.insertarIncidencia(nuevaIncidencia, async (err, lastID) => {
     if (err) {
       console.error("Error al insertar incidencia en SQLite:", err);
@@ -94,17 +95,16 @@ async function processNewIncidence(client, message) {
       async function forwardMessage(targetGroupId, categoryLabel) {
         try {
           const targetChat = await client.getChatById(targetGroupId);
+          // Se agrega el UID al mensaje reenviado.
+          const mensajeConUID = `Nueva tarea recibida (UID: ${uniqueMessageId}):\n\n*${message.body}*`;
           if (mediaData && mediaData.data && mediaData.mimetype) {
             console.log(`Enviando mensaje con media a ${categoryLabel}...`);
             const mediaMessage = new MessageMedia(mediaData.mimetype, mediaData.data);
-            await targetChat.sendMessage(
-              mediaMessage,
-              { caption: `Nueva tarea recibida (ID: ${lastID}):\n\n*${message.body}*` }
-            );
+            await targetChat.sendMessage(mediaMessage, { caption: mensajeConUID });
           } else {
-            await targetChat.sendMessage(`Nueva tarea recibida (ID: ${lastID}):\n\n*${message.body}*`);
+            await targetChat.sendMessage(mensajeConUID);
           }
-          console.log(`Mensaje reenviado a ${categoryLabel}: ${message.body} (ID: ${lastID})`);
+          console.log(`Mensaje reenviado a ${categoryLabel}: ${mensajeConUID}`);
         } catch (error) {
           console.error(`Error al reenviar mensaje a ${categoryLabel}:`, error);
         }
@@ -135,3 +135,5 @@ async function processNewIncidence(client, message) {
 }
 
 module.exports = { processNewIncidence };
+
+//nueva incidencia

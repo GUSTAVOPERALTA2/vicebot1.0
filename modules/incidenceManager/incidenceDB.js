@@ -11,6 +11,7 @@ function initDB() {
       console.log("Base de datos iniciada.");
       db.run(`CREATE TABLE IF NOT EXISTS incidencias (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uniqueMessageId TEXT,
                 descripcion TEXT,
                 reportadoPor TEXT,
                 fechaCreacion TEXT,
@@ -30,9 +31,10 @@ function getDB() {
 
 function insertarIncidencia(incidencia, callback) {
   const sql = `INSERT INTO incidencias 
-    (descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, grupoOrigen, media) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+    (uniqueMessageId, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, grupoOrigen, media) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   db.run(sql, [
+    incidencia.uniqueMessageId,
     incidencia.descripcion,
     incidencia.reportadoPor,
     incidencia.fechaCreacion,
@@ -46,97 +48,23 @@ function insertarIncidencia(incidencia, callback) {
   });
 }
 
-function updateIncidenciaStatus(incidenciaId, estado, callback) {
-  const sql = `UPDATE incidencias SET estado = ? WHERE id = ?`;
-  db.run(sql, [estado, incidenciaId], function(err) {
-    callback(err);
-  });
-}
-
-function updateConfirmaciones(incidenciaId, confirmaciones, callback) {
-  const sql = `UPDATE incidencias SET confirmaciones = ? WHERE id = ?`;
-  db.run(sql, [confirmaciones, incidenciaId], function(err) {
-    callback(err);
-  });
-}
-
-function getIncidenciaById(incidenciaId, callback) {
-  const sql = `SELECT * FROM incidencias WHERE id = ?`;
-  db.get(sql, [incidenciaId], (err, row) => {
-    if (row && row.confirmaciones) {
-      try {
-        row.confirmaciones = JSON.parse(row.confirmaciones);
-      } catch (e) {
-        console.error("Error al parsear confirmaciones:", e);
+/**
+ * Permite buscar una incidencia usando el UID único.
+ */
+function buscarIncidenciaPorUniqueIdAsync(uniqueId) {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM incidencias WHERE uniqueMessageId = ? LIMIT 1";
+    db.get(sql, [uniqueId], (err, row) => {
+      if (err) return reject(err);
+      if (row && row.confirmaciones) {
+        try {
+          row.confirmaciones = JSON.parse(row.confirmaciones);
+        } catch (e) {
+          console.error("Error al parsear confirmaciones:", e);
+        }
       }
-    }
-    callback(err, row);
-  });
-}
-
-function getIncidenciasByCategory(category, callback) {
-  const sql = "SELECT * FROM incidencias WHERE categoria LIKE ?";
-  db.all(sql, [`%${category}%`], (err, rows) => {
-    if (err) {
-      callback(err);
-    } else {
-      if (rows) {
-        rows.forEach(row => {
-          if (row.confirmaciones) {
-            try {
-              row.confirmaciones = JSON.parse(row.confirmaciones);
-            } catch (e) {
-              console.error("Error al parsear confirmaciones:", e);
-            }
-          }
-        });
-      }
-      callback(null, rows);
-    }
-  });
-}
-
-function getIncidenciasByDate(date, callback) {
-  const sql = "SELECT * FROM incidencias WHERE fechaCreacion LIKE ?";
-  db.all(sql, [`${date}%`], (err, rows) => {
-    if (err) {
-      callback(err);
-    } else {
-      if (rows) {
-        rows.forEach(row => {
-          if (row.confirmaciones) {
-            try {
-              row.confirmaciones = JSON.parse(row.confirmaciones);
-            } catch (e) {
-              console.error("Error al parsear confirmaciones:", e);
-            }
-          }
-        });
-      }
-      callback(null, rows);
-    }
-  });
-}
-
-function getIncidenciasByRange(fechaInicio, fechaFin, callback) {
-  const sql = "SELECT * FROM incidencias WHERE fechaCreacion >= ? AND fechaCreacion <= ?";
-  db.all(sql, [fechaInicio, fechaFin], (err, rows) => {
-    if (err) {
-      callback(err);
-    } else {
-      if (rows) {
-        rows.forEach(row => {
-          if (row.confirmaciones) {
-            try {
-              row.confirmaciones = JSON.parse(row.confirmaciones);
-            } catch (e) {
-              console.error("Error al parsear confirmaciones:", e);
-            }
-          }
-        });
-      }
-      callback(null, rows);
-    }
+      resolve(row);
+    });
   });
 }
 
@@ -144,10 +72,6 @@ module.exports = {
   initDB,
   getDB,
   insertarIncidencia,
-  updateIncidenciaStatus,
-  updateConfirmaciones,
-  getIncidenciaById,
-  getIncidenciasByCategory,
-  getIncidenciasByDate,
-  getIncidenciasByRange
+  buscarIncidenciaPorUniqueIdAsync
+  // Otras funciones que se requieran...
 };
