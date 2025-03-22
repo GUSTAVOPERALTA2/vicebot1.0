@@ -1,0 +1,70 @@
+{
+  "identificadores": {
+    "it": {
+      "palabras": [
+        "televisión",
+        "television",
+        "tv",
+        "tele",
+        "canales",
+        "switch"
+      ],
+      "frases": [
+        "problema en el sistema",
+        "la aplicación no responde",
+        "error crítico"
+      ]
+    },
+    "ama": {
+      "palabras": [
+        "venta",
+        "cliente",
+        "pedido"
+      ],
+      "frases": [
+        "problema con el pedido",
+        "consulta de cliente",
+        "solicitud de información"
+      ]
+    },
+    "man": {
+      "palabras": [
+        "mantenimiento",
+        "reparar",
+        "avería"
+      ],
+      "frases": [
+        "falla en el equipo",
+        "necesita reparación",
+        "problema de mantenimiento"
+      ]
+    }
+  },
+  "confirmacion": {
+    "frases": [
+      "confirmo",
+      "realizado",
+      "terminado",
+      "completado"
+    ],
+    "palabras": [
+      "ok",
+      "listo",
+      "fin",
+      "terminado"
+    ]
+  },
+  "retroalimentacion": {
+    "frases": [
+      "¿cómo va",
+      "¿qué tal va",
+      "actualización",
+      "avance de la incidencia"
+    ],
+    "palabras": [
+      "estado",
+      "avance",
+      "actualización"
+    ]
+  }
+}
