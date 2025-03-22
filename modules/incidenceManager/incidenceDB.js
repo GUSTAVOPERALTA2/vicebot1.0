@@ -1,9 +1,10 @@
-// modules/incidenciasDB.js
 const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 let db;
 
 function initDB() {
-  db = new sqlite3.Database('./incidencias.db', (err) => {
+  const dbPath = path.join(__dirname, '../../data/incidencias.db');
+  db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
       console.error("Error al abrir la BD:", err);
     } else {
@@ -96,7 +97,6 @@ function getIncidenciasByCategory(category, callback) {
 }
 
 function getIncidenciasByDate(date, callback) {
-  // Se asume que 'date' viene en formato "YYYY-MM-DD"
   const sql = "SELECT * FROM incidencias WHERE fechaCreacion LIKE ?";
   db.all(sql, [`${date}%`], (err, rows) => {
     if (err) {
@@ -151,5 +151,3 @@ module.exports = {
   getIncidenciasByDate,
   getIncidenciasByRange
 };
-
-//Funcional1

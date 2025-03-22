@@ -1,8 +1,7 @@
-// modules/userManager.js
 const fs = require('fs');
 const path = require('path');
 
-const usersFile = path.join(__dirname, 'users.json');
+const usersFile = path.join(__dirname, '../data/users.json');
 
 function loadUsers() {
   try {
@@ -10,7 +9,7 @@ function loadUsers() {
     return JSON.parse(data);
   } catch (error) {
     console.error("Error loading users:", error);
-    return {};  // Retorna un objeto vacío si no existe o hay error
+    return {};
   }
 }
 
@@ -25,22 +24,14 @@ function saveUsers(users) {
   }
 }
 
-/**
- * Registra un usuario con sus datos: id, nombre, cargo y rol.
- * Formato del comando: 
- *   /registerUser <id> | <nombre-apellido> | <cargo> | <rol>
- */
 function registerUser(id, nombre, cargo, rol) {
-  let users = loadUsers();
+  const users = loadUsers();
   users[id] = { nombre, cargo, rol };
   return saveUsers(users);
 }
 
-/**
- * Obtiene la información del usuario registrado según su ID.
- */
 function getUser(id) {
-  let users = loadUsers();
+  const users = loadUsers();
   return users[id] || null;
 }
 
@@ -50,3 +41,6 @@ module.exports = {
   loadUsers,
   saveUsers
 };
+
+
+//User manager final

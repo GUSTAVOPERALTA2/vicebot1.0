@@ -1,20 +1,17 @@
-// modules/commandsHandler.js
-const config = require('./config');
-const { addEntry, removeEntry, editEntry, loadKeywords } = require('./keywordsManager');
-const incidenciasDB = require('./incidenciasDB');
-const { registerUser, getUser, loadUsers, saveUsers } = require('./userManager');
+const config = require('../../config/config');
+const { addEntry, removeEntry, editEntry, loadKeywords } = require('../../config/keywordsManager');
+const incidenciasDB = require('../incidenceManager/incidenceDB');
+const { registerUser, getUser, loadUsers, saveUsers } = require('../../config/userManager');
 
 async function handleCommands(client, message) {
   const chat = await message.getChat();
   const senderId = message.author ? message.author : message.from;
   const body = message.body ? message.body.trim() : "";
   
-  // Normalizamos el comando a minúsculas para comparar
   const normalizedBody = body.toLowerCase();
   console.log(`Procesando comando: "${body}" desde: ${senderId}`);
 
-  // ------------------- Comandos para administradores -------------------
-  // Comando para usuarios: /ayuda (excluyendo /helpAdmin)
+  // Comando /ayuda para usuarios
   if (normalizedBody.startsWith('/ayuda') && !normalizedBody.startsWith('/helpadmin')) {
     const helpMessage =
       "*COMANDOS USUARIOS* \n\n" +
@@ -30,7 +27,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando para administradores: /helpAdmin
+  // Comando /helpadmin para administradores
   if (normalizedBody.startsWith('/helpadmin')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /helpadmin - getUser:", currentUser);
@@ -39,12 +36,12 @@ async function handleCommands(client, message) {
       return true;
     }
     const helpAdminMessage =
-      "*COMANDOS ADMINISTRADORES*\n\n\n" +
+      "*COMANDOS ADMINISTRADORES*\n\n" +
       "*KEYWORDS*\n\n" +
       "*/reloadKeywords* \n Recarga el archivo de keywords.\n\n" +
       "*/addKeyword <categoria> <tipo> <entrada>* \n Agrega una nueva entrada.\n\n" +
       "*/editKeyword <categoria> <tipo> <oldEntry>|<newEntry>* \n Edita una entrada.\n\n" +
-      "*/viewKeywords* \n Muestra las keywords guardadas.\n\n\n" +
+      "*/viewKeywords* \n Muestra las keywords guardadas.\n\n" +
       "*USERS*\n\n" +
       "*/registerUser <id> | <nombre-apellido> | <cargo> | <rol>* \n Registra un usuario.\n\n" +
       "*/editUser <id> | <nombre-apellido> | <cargo> | <rol>* \n Edita la información de un usuario.\n\n" +
@@ -54,9 +51,8 @@ async function handleCommands(client, message) {
     await chat.sendMessage(helpAdminMessage);
     return true;
   }
-  // -------------------------------COMANDOS PARA PALABRAS -------------------------------------------
-  
-  // Comando: /viewkeywords (solo admin)
+
+  // /viewkeywords (solo admin)
   if (normalizedBody.startsWith('/viewkeywords')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -83,8 +79,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-
-  // Comando: /reloadKeywords
+  // /reloadkeywords (solo admin)
   if (normalizedBody.startsWith('/reloadkeywords')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /reloadkeywords - getUser:", currentUser);
@@ -98,7 +93,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando: /addKeyword <categoria> <tipo> <entrada>
+  // /addKeyword (solo admin)
   if (normalizedBody.startsWith('/addkeyword')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /addkeyword - getUser:", currentUser);
@@ -124,7 +119,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando: /editKeyword <categoria> <tipo> <oldEntry>|<newEntry>
+  // /editKeyword (solo admin)
   if (normalizedBody.startsWith('/editkeyword')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /editkeyword - getUser:", currentUser);
@@ -133,13 +128,11 @@ async function handleCommands(client, message) {
       return true;
     }
     const commandContent = body.substring('/editKeyword'.length).trim();
-    // Usamos "|" para separar directamente
     const parts = commandContent.split('|');
     if (parts.length < 2) {
       await chat.sendMessage("Formato inválido. Uso: /editKeyword <categoria> <tipo> <oldEntry>|<newEntry>");
       return true;
     }
-    // Se asume que la parte izquierda tiene "<categoria> <tipo> <oldEntry>"
     const leftParts = parts[0].trim().split(' ');
     if (leftParts.length < 3) {
       await chat.sendMessage("Formato inválido. Uso: /editKeyword <categoria> <tipo> <oldEntry>|<newEntry>");
@@ -147,7 +140,6 @@ async function handleCommands(client, message) {
     }
     const categoria = leftParts[0].toLowerCase();
     const tipo = leftParts[1].toLowerCase();
-    // El resto de la parte izquierda se concatena como oldEntry
     const oldEntry = leftParts.slice(2).join(' ').trim();
     const newEntry = parts[1].trim();
     const result = editEntry(categoria, tipo, oldEntry, newEntry);
@@ -159,9 +151,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // ------------------------------------------ COMANDOS PARA ROLES Y USUARIOS -------------------------------------------
-  
-  // Comando: /registeruser <id> | <nombre-apellido> | <cargo> | <rol> (solo admin)
+  // /registeruser (solo admin)
   if (normalizedBody.startsWith('/registeruser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -189,7 +179,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando: /edituser <id> | <nombre-apellido> | <cargo> | <rol> (solo admin)
+  // /edituser (solo admin)
   if (normalizedBody.startsWith('/edituser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -221,7 +211,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando: /removeuser <id> (solo admin)
+  // /removeuser (solo admin)
   if (normalizedBody.startsWith('/removeuser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -249,7 +239,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando: /viewuser (solo admin)
+  // /viewuser (solo admin)
   if (normalizedBody.startsWith('/viewuser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -266,211 +256,205 @@ async function handleCommands(client, message) {
     return true;
   }
 
-
-
-  // ------------------- Comandos para IDs -------------------
-  // /identificador
+  // /id
   if (normalizedBody.startsWith('/id')) {
     await chat.sendMessage(`Tu ID es: ${senderId}`);
     return true;
   }
 
-  // ------------------- Comandos para incidencias -------------------
-  // Si no se detecta un comando admin o de usuario, se asume que es incidencia.
-  
-   // /tareas <categoria>
-   if (normalizedBody.startsWith('/tareas ') &&
-       !normalizedBody.startsWith('/tareasfecha') &&
-       !normalizedBody.startsWith('/tareasrango') &&
-       !normalizedBody.startsWith('/tareaspendientes') &&
-       !normalizedBody.startsWith('/tareascompletadas')) {
-     const parts = body.split(' ');
-     if (parts.length < 2) {
-       await chat.sendMessage("Formato inválido. Uso: /tareas <categoria> (it, ama, man)");
-       return true;
-     }
-     const categoria = parts[1].toLowerCase();
-     if (!['it', 'ama', 'man'].includes(categoria)) {
-       await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
-       return true;
-     }
-     incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
-       if (err) {
-         chat.sendMessage("Error al consultar las incidencias.");
-       } else {
-         let summary = `Incidencias para la categoría *${categoria.toUpperCase()}*:\n\n`;
-         if (!rows.length) {
-           summary += "No hay incidencias registradas en esta categoría.";
-         } else {
-           rows.forEach(row => {
-             summary += `ID: ${row.id} | Estado: ${row.estado} | Descripción: ${row.descripcion}\n`;
-           });
-         }
-         chat.sendMessage(summary);
-       }
-     });
-     return true;
-   }
- 
-   // /tareasfecha <YYYY-MM-DD>
-   if (normalizedBody.startsWith('/tareasfecha')) {
-     const parts = body.split(' ');
-     if (parts.length < 2) {
-       await chat.sendMessage("Formato inválido. Uso: /tareasFecha <YYYY-MM-DD>");
-       return true;
-     }
-     const date = parts[1].trim();
-     incidenciasDB.getIncidenciasByDate(date, (err, rows) => {
-       if (err) {
-         chat.sendMessage("Error al consultar incidencias por fecha.");
-       } else {
-         let summary = `Incidencias del *${date}*:\n\n`;
-         if (!rows.length) {
-           summary += "No hay incidencias registradas para esa fecha.";
-         } else {
-           rows.forEach(row => {
-             summary += `ID: ${row.id} | Estado: ${row.estado} | Descripción: ${row.descripcion}\n`;
-           });
-         }
-         chat.sendMessage(summary);
-       }
-     });
-     return true;
-   }
- 
-   // /tareasrango <fechaInicio> <fechaFin>
-   if (normalizedBody.startsWith('/tareasrango')) {
-     const parts = body.split(' ');
-     if (parts.length < 3) {
-       await chat.sendMessage("Formato inválido. Uso: /tareasRango <fechaInicio> <fechaFin> (YYYY-MM-DD)");
-       return true;
-     }
-     let fechaInicio = parts[1].trim();
-     let fechaFin = parts[2].trim();
-     fechaInicio = `${fechaInicio}T00:00:00.000Z`;
-     fechaFin = `${fechaFin}T23:59:59.999Z`;
-     incidenciasDB.getIncidenciasByRange(fechaInicio, fechaFin, (err, rows) => {
-       if (err) {
-         chat.sendMessage("Error al consultar incidencias por rango.");
-       } else {
-         let summary = `Incidencias entre ${parts[1]} y ${parts[2]}:\n\n`;
-         if (!rows.length) {
-           summary += "No hay incidencias registradas en ese rango.";
-         } else {
-           rows.forEach(row => {
-             summary += `ID: ${row.id} | Estado: ${row.estado} | Descripción: ${row.descripcion}\n`;
-           });
-         }
-         chat.sendMessage(summary);
-       }
-     });
-     return true;
-   }
- 
-   // /tareaspendientes <categoria>
-   if (normalizedBody.startsWith('/tareaspendientes')) {
-     const parts = body.split(' ');
-     if (parts.length < 2) {
-       await chat.sendMessage("Formato inválido. Uso: /tareasPendientes <categoria> (it, ama, man)");
-       return true;
-     }
-     const categoria = parts[1].toLowerCase();
-     if (!['it', 'ama', 'man'].includes(categoria)) {
-       await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
-       return true;
-     }
-     incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
-       if (err) {
-         chat.sendMessage("Error al consultar incidencias.");
-       } else {
-         const pendingRows = rows.filter(r => r.estado !== "completada");
-         let summary = `Incidencias pendientes en categoría ${categoria.toUpperCase()}:\n\n`;
-         if (!pendingRows.length) {
-           summary += "No hay incidencias pendientes en esta categoría.";
-         } else {
-           pendingRows.forEach(row => {
-             summary += `*ID:* ${row.id} | *Estado:* ${row.estado} | *Descripción:* ${row.descripcion}\n\n`;
-           });
-         }
-         chat.sendMessage(summary);
-       }
-     });
-     return true;
-   }
- 
-   // /tareascompletadas <categoria>
-   if (normalizedBody.startsWith('/tareascompletadas')) {
-     const parts = body.split(' ');
-     if (parts.length < 2) {
-       await chat.sendMessage("Formato inválido. Uso: /tareasCompletadas <categoria> (it, ama, man)");
-       return true;
-     }
-     const categoria = parts[1].toLowerCase();
-     if (!['it', 'ama', 'man'].includes(categoria)) {
-       await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
-       return true;
-     }
-     incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
-       if (err) {
-         chat.sendMessage("Error al consultar incidencias.");
-       } else {
-         const compRows = rows.filter(r => r.estado === "completada");
-         let summary = `Incidencias completadas en categoría *${categoria.toUpperCase()}*:\n\n`;
-         if (!compRows.length) {
-           summary += "No hay incidencias completadas en esta categoría.";
-         } else {
-           compRows.forEach(row => {
-             summary += `*ID:* ${row.id} | *Estado:* ${row.estado} | *Descripción:* ${row.descripcion}\n\n`;
-           });
-         }
-         chat.sendMessage(summary);
-       }
-     });
-     return true;
-   }
- 
-   // /tareaDetalles <id>
-   if (normalizedBody.startsWith('/tareadetalles')) {
-     const parts = body.split(' ');
-     if (parts.length < 2) {
-       await chat.sendMessage("Formato inválido. Uso: /tareaDetalles <id>");
-       return true;
-     }
-     const incId = parts[1].trim();
-     incidenciasDB.getIncidenciaById(incId, async (err, row) => {
-       if (err) {
-         await chat.sendMessage("Error al consultar la incidencia.");
-       } else if (!row) {
-         await chat.sendMessage(`No se encontró ninguna incidencia con ID ${incId}.`);
-       } else {
-         let detailMessage = `*Detalles de la incidencia (ID: ${row.id}):*\n\n`;
-         detailMessage += `*Descripción:*\n ${row.descripcion}\n`;
-         const user = getUser(row.reportadoPor);
-         if (user) {
-           detailMessage += `*Reportado por:*\n ${user.nombre} (${user.cargo}, rol: ${user.rol})\n`;
-         } else {
-           detailMessage += `*Reportado por:*\n ${row.reportadoPor}\n`;
-         }
-         detailMessage += `*Fecha de Creación:*\n ${row.fechaCreacion}\n`;
-         detailMessage += `*Estado:*\n ${row.estado}\n`;
-         detailMessage += `*Categoría:*\n ${row.categoria}\n`;
-         detailMessage += `*Grupo de Origen:*\n ${row.grupoOrigen}\n`;
-         detailMessage += row.media ? "*Media:*\n [Adjunta]" : "*Media:*\n No hay";
-         await chat.sendMessage(detailMessage);
-         if (row.media) {
-           const { MessageMedia } = require('whatsapp-web.js');
-           const media = new MessageMedia("image/png", row.media);
-           await chat.sendMessage(media);
-         }
-       }
-     });
-     return true;
-   }
-   
-   // Si ningún comando se detecta, se retorna false
-   return false;
- }
- 
- module.exports = { handleCommands };
- 
- //manejador de comandos
+  // Comandos de incidencias:
+  if (normalizedBody.startsWith('/tareas ') &&
+      !normalizedBody.startsWith('/tareasfecha') &&
+      !normalizedBody.startsWith('/tareasrango') &&
+      !normalizedBody.startsWith('/tareaspendientes') &&
+      !normalizedBody.startsWith('/tareascompletadas')) {
+    const parts = body.split(' ');
+    if (parts.length < 2) {
+      await chat.sendMessage("Formato inválido. Uso: /tareas <categoria> (it, ama, man)");
+      return true;
+    }
+    const categoria = parts[1].toLowerCase();
+    if (!['it', 'ama', 'man'].includes(categoria)) {
+      await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
+      return true;
+    }
+    incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
+      if (err) {
+        chat.sendMessage("Error al consultar las incidencias.");
+      } else {
+        let summary = `Incidencias para la categoría *${categoria.toUpperCase()}*:\n\n`;
+        if (!rows.length) {
+          summary += "No hay incidencias registradas en esta categoría.";
+        } else {
+          rows.forEach(row => {
+            summary += `ID: ${row.id} | Estado: ${row.estado} | Descripción: ${row.descripcion}\n`;
+          });
+        }
+        chat.sendMessage(summary);
+      }
+    });
+    return true;
+  }
+
+  // /tareasfecha <YYYY-MM-DD>
+  if (normalizedBody.startsWith('/tareasfecha')) {
+    const parts = body.split(' ');
+    if (parts.length < 2) {
+      await chat.sendMessage("Formato inválido. Uso: /tareasFecha <YYYY-MM-DD>");
+      return true;
+    }
+    const date = parts[1].trim();
+    incidenciasDB.getIncidenciasByDate(date, (err, rows) => {
+      if (err) {
+        chat.sendMessage("Error al consultar incidencias por fecha.");
+      } else {
+        let summary = `Incidencias del *${date}*:\n\n`;
+        if (!rows.length) {
+          summary += "No hay incidencias registradas para esa fecha.";
+        } else {
+          rows.forEach(row => {
+            summary += `ID: ${row.id} | Estado: ${row.estado} | Descripción: ${row.descripcion}\n`;
+          });
+        }
+        chat.sendMessage(summary);
+      }
+    });
+    return true;
+  }
+
+  // /tareasrango <fechaInicio> <fechaFin>
+  if (normalizedBody.startsWith('/tareasrango')) {
+    const parts = body.split(' ');
+    if (parts.length < 3) {
+      await chat.sendMessage("Formato inválido. Uso: /tareasRango <fechaInicio> <fechaFin> (YYYY-MM-DD)");
+      return true;
+    }
+    let fechaInicio = parts[1].trim();
+    let fechaFin = parts[2].trim();
+    fechaInicio = `${fechaInicio}T00:00:00.000Z`;
+    fechaFin = `${fechaFin}T23:59:59.999Z`;
+    incidenciasDB.getIncidenciasByRange(fechaInicio, fechaFin, (err, rows) => {
+      if (err) {
+        chat.sendMessage("Error al consultar incidencias por rango.");
+      } else {
+        let summary = `Incidencias entre ${parts[1]} y ${parts[2]}:\n\n`;
+        if (!rows.length) {
+          summary += "No hay incidencias registradas en ese rango.";
+        } else {
+          rows.forEach(row => {
+            summary += `ID: ${row.id} | Estado: ${row.estado} | Descripción: ${row.descripcion}\n`;
+          });
+        }
+        chat.sendMessage(summary);
+      }
+    });
+    return true;
+  }
+
+  // /tareaspendientes <categoria>
+  if (normalizedBody.startsWith('/tareaspendientes')) {
+    const parts = body.split(' ');
+    if (parts.length < 2) {
+      await chat.sendMessage("Formato inválido. Uso: /tareasPendientes <categoria> (it, ama, man)");
+      return true;
+    }
+    const categoria = parts[1].toLowerCase();
+    if (!['it', 'ama', 'man'].includes(categoria)) {
+      await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
+      return true;
+    }
+    incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
+      if (err) {
+        chat.sendMessage("Error al consultar incidencias.");
+      } else {
+        const pendingRows = rows.filter(r => r.estado !== "completada");
+        let summary = `Incidencias pendientes en categoría ${categoria.toUpperCase()}:\n\n`;
+        if (!pendingRows.length) {
+          summary += "No hay incidencias pendientes en esta categoría.";
+        } else {
+          pendingRows.forEach(row => {
+            summary += `*ID:* ${row.id} | *Estado:* ${row.estado} | *Descripción:* ${row.descripcion}\n\n`;
+          });
+        }
+        chat.sendMessage(summary);
+      }
+    });
+    return true;
+  }
+
+  // /tareascompletadas <categoria>
+  if (normalizedBody.startsWith('/tareascompletadas')) {
+    const parts = body.split(' ');
+    if (parts.length < 2) {
+      await chat.sendMessage("Formato inválido. Uso: /tareasCompletadas <categoria> (it, ama, man)");
+      return true;
+    }
+    const categoria = parts[1].toLowerCase();
+    if (!['it', 'ama', 'man'].includes(categoria)) {
+      await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
+      return true;
+    }
+    incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
+      if (err) {
+        chat.sendMessage("Error al consultar incidencias.");
+      } else {
+        const compRows = rows.filter(r => r.estado === "completada");
+        let summary = `Incidencias completadas en categoría *${categoria.toUpperCase()}*:\n\n`;
+        if (!compRows.length) {
+          summary += "No hay incidencias completadas en esta categoría.";
+        } else {
+          compRows.forEach(row => {
+            summary += `*ID:* ${row.id} | *Estado:* ${row.estado} | *Descripción:* ${row.descripcion}\n\n`;
+          });
+        }
+        chat.sendMessage(summary);
+      }
+    });
+    return true;
+  }
+
+  // /tareaDetalles <id>
+  if (normalizedBody.startsWith('/tareadetalles')) {
+    const parts = body.split(' ');
+    if (parts.length < 2) {
+      await chat.sendMessage("Formato inválido. Uso: /tareaDetalles <id>");
+      return true;
+    }
+    const incId = parts[1].trim();
+    incidenciasDB.getIncidenciaById(incId, async (err, row) => {
+      if (err) {
+        await chat.sendMessage("Error al consultar la incidencia.");
+      } else if (!row) {
+        await chat.sendMessage(`No se encontró ninguna incidencia con ID ${incId}.`);
+      } else {
+        let detailMessage = `*Detalles de la incidencia (ID: ${row.id}):*\n\n`;
+        detailMessage += `*Descripción:*\n ${row.descripcion}\n`;
+        const user = getUser(row.reportadoPor);
+        if (user) {
+          detailMessage += `*Reportado por:*\n ${user.nombre} (${user.cargo}, rol: ${user.rol})\n`;
+        } else {
+          detailMessage += `*Reportado por:*\n ${row.reportadoPor}\n`;
+        }
+        detailMessage += `*Fecha de Creación:*\n ${row.fechaCreacion}\n`;
+        detailMessage += `*Estado:*\n ${row.estado}\n`;
+        detailMessage += `*Categoría:*\n ${row.categoria}\n`;
+        detailMessage += `*Grupo de Origen:*\n ${row.grupoOrigen}\n`;
+        detailMessage += row.media ? "*Media:*\n [Adjunta]" : "*Media:*\n No hay";
+        await chat.sendMessage(detailMessage);
+        if (row.media) {
+          const { MessageMedia } = require('whatsapp-web.js');
+          const media = new MessageMedia("image/png", row.media);
+          await chat.sendMessage(media);
+        }
+      }
+    });
+    return true;
+  }
+
+  return false;
+}
+
+module.exports = { handleCommands };
+
+
+//COMANDAS

@@ -1,6 +1,5 @@
-// modules/incidenceHandler.js
-const config = require('./config');
-const incidenciasDB = require('./incidenciasDB');
+const config = require('../../config/config');
+const incidenciasDB = require('./incidenceDB');
 const { MessageMedia } = require('whatsapp-web.js');
 const moment = require('moment-timezone');
 
@@ -8,7 +7,7 @@ async function handleIncidence(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
 
-  // --- Procesamiento de nuevas incidencias en el grupo principal ---
+  // Procesamiento de incidencias en el grupo principal
   if (chatId === config.groupPruebaId) {
     console.log("Procesando mensaje de Grupo de Incidencias.");
     const messageText = message.body.toLowerCase();
@@ -39,7 +38,6 @@ async function handleIncidence(client, message) {
     }
     console.log(`Registrando incidencia para categorías ${foundCategories.join(', ')}: ${message.body}`);
 
-    // Si hay más de una categoría, creamos el objeto "confirmaciones" con valores iniciales false.
     let confirmaciones = null;
     if (foundCategories.length > 1) {
       confirmaciones = {};
@@ -48,7 +46,6 @@ async function handleIncidence(client, message) {
       });
     }
     
-    // Descargar media, si existe
     let mediaData = null;
     if (message.hasMedia) {
       try {
@@ -64,14 +61,13 @@ async function handleIncidence(client, message) {
       }
     }
     
-    // Construir objeto incidencia
     const nuevaIncidencia = {
       descripcion: message.body,
       reportadoPor: message.author ? message.author : message.from,
       fechaCreacion: new Date().toISOString(),
       estado: "pendiente",
       categoria: foundCategories.join(', '),
-      confirmaciones: confirmaciones, // Solo se usa si hay más de una categoría
+      confirmaciones: confirmaciones,
       grupoOrigen: chatId,
       media: mediaData ? mediaData.data : null
     };
@@ -82,7 +78,6 @@ async function handleIncidence(client, message) {
       } else {
         console.log("Incidencia registrada con ID:", lastID);
     
-        // Función para reenviar la incidencia a cada grupo destino según la categoría
         async function forwardMessage(targetGroupId, categoryLabel) {
           try {
             const targetChat = await client.getChatById(targetGroupId);
@@ -127,7 +122,7 @@ async function handleIncidence(client, message) {
     return;
   }
   
-  // --- Procesamiento para confirmación de incidencias en grupos destino ---
+  // Procesamiento para confirmación en grupos destino
   if ([config.groupBotDestinoId, config.groupMantenimientoId, config.groupAmaId].includes(chatId)) {
     console.log("Procesando mensaje de confirmación en grupo destino.");
     if (!message.hasQuotedMsg) {
@@ -168,7 +163,6 @@ async function handleIncidence(client, message) {
         return;
       }
       
-      // Determinar desde qué grupo se confirma
       let categoriaConfirmada = "";
       if (chatId === config.groupBotDestinoId) {
         categoriaConfirmada = "it";
@@ -178,22 +172,17 @@ async function handleIncidence(client, message) {
         categoriaConfirmada = "ama";
       }
       
-      // Si la incidencia tiene confirmaciones (más de una categoría)
       if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
-        // En lugar de asignar "true", asignamos la marca de tiempo de la confirmación
         incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
         incidenciasDB.updateConfirmaciones(incidenciaId, JSON.stringify(incidencia.confirmaciones), (err) => {
           if (err) {
             console.error("Error al actualizar confirmaciones:", err);
           } else {
             console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
-            // Calculamos cuántos equipos han confirmado
             const confirmacionesValues = Object.values(incidencia.confirmaciones);
             const fase = confirmacionesValues.filter(val => val !== false).length;
             const totalTeams = Object.keys(incidencia.confirmaciones).length;
             if (fase < totalTeams) {
-              // Enviar mensaje parcial al grupo principal
-              // Listar equipos que ya confirmaron y los que faltan
               const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA DE LLAVES" };
               const confirmedTeams = Object.entries(incidencia.confirmaciones)
                 .filter(([cat, val]) => val !== false)
@@ -201,7 +190,6 @@ async function handleIncidence(client, message) {
               const missingTeams = Object.entries(incidencia.confirmaciones)
                 .filter(([cat, val]) => val === false)
                 .map(([cat]) => teamNames[cat] || cat.toUpperCase());
-              // Calcular el tiempo de respuesta global (diferencia desde la creación hasta ahora)
               const responseTime = moment().diff(moment(incidencia.fechaCreacion));
               const diffDuration = moment.duration(responseTime);
               const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
@@ -233,7 +221,6 @@ async function handleIncidence(client, message) {
           }
         });
       } else {
-        // Incidencia de una sola categoría: actualizar globalmente
         incidenciasDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
           if (err) {
             console.error("Error al actualizar la incidencia:", err);
@@ -249,19 +236,9 @@ async function handleIncidence(client, message) {
   }
 }
 
-/**
- * Envía el mensaje final de confirmación al grupo principal (config.groupPruebaId)
- * con el formato solicitado y emojis.
- * @param {Client} client - El cliente de WhatsApp.
- * @param {object} incidencia - Objeto incidencia obtenido de la BD.
- * @param {string|number} incidenciaId - ID de la incidencia.
- * @param {string} categoriaConfirmada - La categoría que se confirmó.
- */
 async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
-  // En este mensaje final se muestran todos los equipos involucrados.
   let teamNames = {};
   if (incidencia.categoria) {
-    // Suponemos que incidencia.categoria es una cadena separada por comas.
     incidencia.categoria.split(',').forEach(cat => {
       const t = cat.trim().toLowerCase();
       if (t === "it") teamNames[t] = "IT";
@@ -271,7 +248,6 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
   }
   const equiposInvolucrados = Object.values(teamNames).join(", ");
   
-  // Si la incidencia tiene confirmaciones, también calculamos el cronómetro para cada equipo.
   let cronometros = "";
   if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
     for (const [cat, confirmTime] of Object.entries(incidencia.confirmaciones)) {
@@ -313,4 +289,5 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
 
 module.exports = { handleIncidence };
 
-//Funcional 1
+
+//NUEVO

@@ -1,13 +1,7 @@
-// modules/autoReminder.js
 const moment = require('moment-timezone');
 const config = require('./config');
-const incidenciasDB = require('./incidenciasDB');
+const incidenciasDB = require('../modules/incidenceManager/incidenceDB');
 
-/**
- * Calcula el tiempo transcurrido entre la fecha de creación y el momento actual, en días, horas y minutos.
- * @param {string} fechaCreacion - Fecha de creación (ISO).
- * @returns {string} Tiempo formateado.
- */
 function calcularTiempoSinRespuesta(fechaCreacion) {
   const ahora = moment();
   const inicio = moment(fechaCreacion);
@@ -18,13 +12,6 @@ function calcularTiempoSinRespuesta(fechaCreacion) {
   return `${dias} día(s), ${horas} hora(s), ${minutos} minuto(s)`;
 }
 
-/**
- * Revisa las incidencias pendientes y envía un recordatorio individual.
- * Si initialRun es true, se usa umbral 0h; si no, umbral 1h.
- * Solo se envía si la hora actual (en "America/Hermosillo") está entre 8:00 y 21:00.
- * @param {Client} client - El cliente de WhatsApp.
- * @param {boolean} initialRun 
- */
 function checkPendingIncidences(client, initialRun = false) {
   const now = moment().tz("America/Hermosillo");
   const currentHour = now.hour();
@@ -33,7 +20,6 @@ function checkPendingIncidences(client, initialRun = false) {
     return;
   }
   const threshold = initialRun ? now.toISOString() : now.clone().subtract(1, 'hour').toISOString();
-  const threshold24 = now.clone().subtract(24, 'hours').toISOString();
   console.log(`Chequeando incidencias pendientes (umbral ${initialRun ? '0h' : '1h'}): ${threshold}`);
 
   const db = incidenciasDB.getDB();
@@ -62,7 +48,7 @@ function checkPendingIncidences(client, initialRun = false) {
       const fechaFormateada = moment(row.fechaCreacion).format("DD/MM/YYYY hh:mm a");
       const msg = `*RECORDATORIO: TAREA INCOMPLETA*\n\n` +
                   `${row.descripcion}\n\n` +
-                  `Fecha de creacion: ${fechaFormateada}\n` +
+                  `Fecha de creación: ${fechaFormateada}\n` +
                   `Tiempo sin respuesta: ${tiempoSinRespuesta}\n` +
                   `ID: ${row.id}`;
       console.log(`Enviando recordatorio para incidencia ${row.id} a grupo ${groupId}`);
@@ -77,9 +63,9 @@ function checkPendingIncidences(client, initialRun = false) {
 }
 
 function startReminder(client) {
-  // Chequeo inmediato: umbral 0h
+  // Ejecución inmediata con umbral 0h
   checkPendingIncidences(client, true);
-  // Ejecución periódica cada 1 hora: umbral 1h
+  // Ejecución periódica cada 1 hora con umbral 1h
   setInterval(() => {
     checkPendingIncidences(client, false);
   }, 3600000);
@@ -87,4 +73,5 @@ function startReminder(client) {
 
 module.exports = { startReminder };
 
-//funcion con db
+
+//Reminder Final

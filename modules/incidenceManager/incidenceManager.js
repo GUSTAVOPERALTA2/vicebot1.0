@@ -1,4 +1,3 @@
-// modules/incidenciasManager.js
 const fs = require('fs');
 const path = require('path');
 
@@ -26,7 +25,6 @@ function saveIncidencias(incidencias) {
 
 function getIncidenciasByCategory(categoria, callback) {
   const incidencias = loadIncidencias();
-  // Filtrar incidencias que coincidan con la categoría solicitada.
   const filtradas = incidencias.filter(inc => inc.categoria === categoria);
   callback(null, filtradas);
 }
@@ -41,7 +39,6 @@ function formatIncidenciasSummary(incidencias) {
   let pendientes = incidencias.filter(inc => inc.estado !== "completada").length;
   message += `Total: ${total} - Completadas: ${completadas} - Pendientes: ${pendientes}\n\n`;
   incidencias.forEach(inc => {
-    // Se muestra un resumen breve (ID, estado y descripción)
     message += `ID: ${inc.id} | Estado: ${inc.estado} | Descripción: ${inc.descripcion}\n`;
   });
   return message;
@@ -53,4 +50,3 @@ module.exports = {
   getIncidenciasByCategory,
   formatIncidenciasSummary
 };
-//Incidencias nuevo

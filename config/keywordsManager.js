@@ -1,10 +1,5 @@
-// modules/keywordsManager.js
 const fs = require('fs');
-const path = require('path');
 const config = require('./config');
-
-// Se asume que config.keywordsFile contiene la ruta al archivo JSON de keywords.
-// Ejemplo: config.keywordsFile = path.join(__dirname, 'keywords.json');
 
 function loadKeywords() {
   try {
@@ -154,4 +149,6 @@ module.exports = {
   removeEntry,
   editEntry
 };
-//Funcional1
+
+
+//Manager final
