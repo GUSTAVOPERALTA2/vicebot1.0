@@ -1,4 +1,5 @@
 const incidenceDB = require('./incidenceDB');
+const moment = require('moment');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
@@ -42,7 +43,7 @@ async function detectFeedbackRequest(client, message) {
 
 /**
  * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
- * Si el mensaje citado proviene de /tareaDetalles (contiene "Detalles de la incidencia"),
+ * Si el mensaje citado proviene del comando /tareaDetalles (contiene "Detalles de la incidencia"),
  * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
  *
  * @param {Object} quotedMessage - El mensaje citado.
@@ -63,7 +64,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // En otro caso, se usa la metadata (originalMsgId almacenado en el mensaje citado).
+  // En otro caso, se usa la metadata (originalMsgId) del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -76,7 +77,13 @@ async function extractFeedbackIdentifier(quotedMessage) {
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
  * al identificador (ya sea numérico o el originalMsgId) y construye un mensaje
- * de confirmación con la información de la incidencia.
+ * de retroalimentación.
+ *
+ * Si la incidencia tiene estado "completada", se genera un mensaje indicando que la tarea
+ * fue completada, mostrando la fecha de creación, la fecha de finalización (hora actual) y
+ * el tiempo activo.
+ *
+ * Si la incidencia está pendiente, se muestra la información básica.
  *
  * @param {string} identifier - El identificador extraído.
  * @returns {Promise<string|null>} - El mensaje de confirmación o null si no se encuentra la incidencia.
@@ -92,20 +99,34 @@ async function getFeedbackConfirmationMessage(identifier) {
       });
     });
   } else {
-    // Caso contrario, buscar por originalMsgId.
+    // Buscar por originalMsgId.
     incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
   }
   if (!incidence) {
     console.log("No se encontró incidencia con el identificador: " + identifier);
     return null;
   }
-  const confirmationMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
-    `${incidence.descripcion}\n` +
-    `ID: ${incidence.id}\n` +
-    `Categoría: ${incidence.categoria}`;
-  return confirmationMessage;
+  
+  if (incidence.estado.toLowerCase() === "completada") {
+    const creationTime = moment(incidence.fechaCreacion);
+    const completionTime = moment(); // Usamos la hora actual como finalización.
+    const duration = moment.duration(completionTime.diff(creationTime));
+    const days = Math.floor(duration.asDays());
+    const hours = duration.hours();
+    const minutes = duration.minutes();
+    const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+    const confirmationMessage = `Esta tarea ha sido completada.\n` +
+      `Fecha de creación: ${incidence.fechaCreacion}\n` +
+      `Fecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\n` +
+      `Tiempo activo: ${durationStr}`;
+    return confirmationMessage;
+  } else {
+    const confirmationMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
+      `${incidence.descripcion}\n` +
+      `ID: ${incidence.id}\n` +
+      `Categoría: ${incidence.categoria}`;
+    return confirmationMessage;
+  }
 }
 
 module.exports = { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage };
-
-//dos logicas
