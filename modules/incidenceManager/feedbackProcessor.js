@@ -53,8 +53,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles,
-  // se extrae el id numérico usando una expresión regular.
+  // Si el mensaje contiene "Detalles de la incidencia", se asume que es el generado por /tareaDetalles.
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -76,14 +75,15 @@ async function extractFeedbackIdentifier(quotedMessage) {
 
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * al identificador (ya sea numérico o el originalMsgId) y construye un mensaje
- * de retroalimentación.
+ * al identificador (ya sea numérico o el originalMsgId) y construye un mensaje de confirmación.
+ * 
+ * Si la incidencia tiene un objeto de confirmaciones (para múltiples categorías):
+ *  - Si aún quedan categorías pendientes, devuelve un mensaje de retroalimentación parcial,
+ *    indicando qué categorías han confirmado y cuáles están pendientes, junto con el tiempo transcurrido.
+ *  - Si todas las confirmaciones se han recibido, devuelve un mensaje final indicando que la tarea ha sido completada,
+ *    mostrando la fecha de creación, la fecha de finalización (hora actual) y el tiempo activo.
  *
- * Si la incidencia tiene estado "completada", se genera un mensaje indicando que la tarea
- * fue completada, mostrando la fecha de creación, la fecha de finalización (hora actual) y
- * el tiempo activo.
- *
- * Si la incidencia está pendiente, se muestra la información básica.
+ * Si no hay confirmaciones múltiples, devuelve la retroalimentación básica.
  *
  * @param {string} identifier - El identificador extraído.
  * @returns {Promise<string|null>} - El mensaje de confirmación o null si no se encuentra la incidencia.
@@ -91,7 +91,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
 async function getFeedbackConfirmationMessage(identifier) {
   let incidence;
   if (/^\d+$/.test(identifier)) {
-    // Si el identificador es numérico, buscar por id.
+    // Es numérico: buscar por id.
     incidence = await new Promise((resolve, reject) => {
       incidenceDB.getIncidenciaById(identifier, (err, row) => {
         if (err) return reject(err);
@@ -107,26 +107,49 @@ async function getFeedbackConfirmationMessage(identifier) {
     return null;
   }
   
-  if (incidence.estado.toLowerCase() === "completada") {
-    const creationTime = moment(incidence.fechaCreacion);
-    const completionTime = moment(); // Usamos la hora actual como finalización.
-    const duration = moment.duration(completionTime.diff(creationTime));
-    const days = Math.floor(duration.asDays());
-    const hours = duration.hours();
-    const minutes = duration.minutes();
-    const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
-    const confirmationMessage = `Esta tarea ha sido completada.\n` +
-      `Fecha de creación: ${incidence.fechaCreacion}\n` +
-      `Fecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\n` +
-      `Tiempo activo: ${durationStr}`;
-    return confirmationMessage;
-  } else {
-    const confirmationMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
-      `${incidence.descripcion}\n` +
-      `ID: ${incidence.id}\n` +
-      `Categoría: ${incidence.categoria}`;
-    return confirmationMessage;
+  // Si la incidencia tiene confirmaciones múltiples (un objeto con más de una clave)
+  if (incidence.confirmaciones && typeof incidence.confirmaciones === "object") {
+    const keys = Object.keys(incidence.confirmaciones);
+    const confirmed = keys.filter(key => incidence.confirmaciones[key] !== false);
+    const pending = keys.filter(key => incidence.confirmaciones[key] === false);
+    
+    if (pending.length > 0) {
+      const creationTime = moment(incidence.fechaCreacion);
+      const now = moment();
+      const duration = moment.duration(now.diff(creationTime));
+      const days = Math.floor(duration.asDays());
+      const hours = duration.hours();
+      const minutes = duration.minutes();
+      const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+      const partialMessage = `RETROALIMENTACION PARCIAL:\n` +
+        `Incidencia: ${incidence.descripcion}\n` +
+        `ID: ${incidence.id}\n` +
+        `Categorías confirmadas: ${confirmed.join(", ") || "ninguna"}\n` +
+        `Categorías pendientes: ${pending.join(", ") || "ninguna"}\n` +
+        `Tiempo transcurrido: ${durationStr}`;
+      return partialMessage;
+    } else {
+      const creationTime = moment(incidence.fechaCreacion);
+      const completionTime = moment();
+      const duration = moment.duration(completionTime.diff(creationTime));
+      const days = Math.floor(duration.asDays());
+      const hours = duration.hours();
+      const minutes = duration.minutes();
+      const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+      const finalMessage = `ESTA TAREA HA SIDO COMPLETADA.\n` +
+        `Fecha de creación: ${incidence.fechaCreacion}\n` +
+        `Fecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\n` +
+        `Tiempo activo: ${durationStr}`;
+      return finalMessage;
+    }
   }
+  
+  // Si no hay confirmaciones múltiples, enviar retroalimentación básica.
+  const basicMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
+    `${incidence.descripcion}\n` +
+    `ID: ${incidence.id}\n` +
+    `Categoría: ${incidence.categoria}`;
+  return basicMessage;
 }
 
 module.exports = { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage };
