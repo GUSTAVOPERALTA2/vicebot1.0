@@ -172,6 +172,13 @@ function updateIncidenciaStatus(incidenciaId, estado, callback) {
   });
 }
 
+function updateConfirmaciones(incidenciaId, confirmaciones, callback) {
+  const sql = "UPDATE incidencias SET confirmaciones = ? WHERE id = ?";
+  db.run(sql, [confirmaciones, incidenciaId], function(err) {
+    callback(err);
+  });
+}
+
 module.exports = {
   initDB,
   getDB,
@@ -182,5 +189,6 @@ module.exports = {
   getIncidenciasByCategory,
   getIncidenciasByDate,
   getIncidenciasByRange,
-  updateIncidenciaStatus
+  updateIncidenciaStatus,
+  updateConfirmaciones
 };
