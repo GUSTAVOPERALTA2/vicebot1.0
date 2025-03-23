@@ -1,4 +1,4 @@
-const incidenciasDB = require('./incidenceDB');
+const incidenceDB = require('./incidenceDB');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia original
@@ -15,12 +15,14 @@ async function detectFeedbackRequest(client, message) {
   const feedbackPhrases = client.keywordsData.retroalimentacion?.frases || [];
 
   let feedbackDetected = false;
+  // Verificar coincidencia con las frases definidas.
   for (let phrase of feedbackPhrases) {
     if (responseText.includes(phrase.toLowerCase())) {
       feedbackDetected = true;
       break;
     }
   }
+  // Si no se detectó con frases, verificar palabra por palabra.
   if (!feedbackDetected) {
     const responseWords = new Set(responseText.split(/\s+/));
     for (let word of feedbackWords) {
@@ -38,13 +40,12 @@ async function detectFeedbackRequest(client, message) {
 
 /**
  * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
- * En este enfoque, se usa directamente el id del mensaje citado (metadata) para buscar en la BD.
+ * Se utiliza el id del mensaje citado (metadata) para buscar en la BD.
  *
  * @param {Object} quotedMessage - El mensaje citado.
  * @returns {Promise<string|null>} - El identificador extraído o null.
  */
 async function extractFeedbackIdentifier(quotedMessage) {
-  // Usar la propiedad id._serialized del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo originalMsgId del mensaje citado:", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -61,8 +62,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
  * @returns {Promise<string|null>} - El mensaje de confirmación o null.
  */
 async function getFeedbackConfirmationMessage(identifier) {
-  // Intentar buscar la incidencia por originalMsgId.
-  const incidence = await incidenciasDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
+  const incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
   if (!incidence) {
     console.log("No se encontró incidencia con originalMsgId: " + identifier);
     return null;
