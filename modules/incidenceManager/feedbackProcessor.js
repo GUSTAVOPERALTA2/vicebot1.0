@@ -1,13 +1,8 @@
-// vicebot/modules/incidenceManager/feedbackProcessor.js
 const incidenciasDB = require('./incidenceDB');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia original
  * contiene palabras o frases indicativas de solicitar retroalimentación.
- *
- * @param {Object} client - El cliente de WhatsApp (debe tener client.keywordsData).
- * @param {Object} message - El mensaje de respuesta que cita el mensaje original.
- * @returns {Promise<boolean>} - Retorna true si se detecta retroalimentación, false en caso contrario.
  */
 async function detectFeedbackRequest(client, message) {
   if (!message.hasQuotedMsg) {
@@ -15,20 +10,17 @@ async function detectFeedbackRequest(client, message) {
     return false;
   }
   
-  const quotedMessage = await message.getQuotedMessage();
   const responseText = message.body.toLowerCase();
   const feedbackWords = client.keywordsData.retroalimentacion?.palabras || [];
   const feedbackPhrases = client.keywordsData.retroalimentacion?.frases || [];
 
   let feedbackDetected = false;
-  // Buscar coincidencias en frases.
   for (let phrase of feedbackPhrases) {
     if (responseText.includes(phrase.toLowerCase())) {
       feedbackDetected = true;
       break;
     }
   }
-  // Si no se detectó mediante frases, buscar coincidencias en palabras.
   if (!feedbackDetected) {
     const responseWords = new Set(responseText.split(/\s+/));
     for (let word of feedbackWords) {
@@ -45,47 +37,41 @@ async function detectFeedbackRequest(client, message) {
 }
 
 /**
- * extractFeedbackIdentifier - Intenta extraer el UID del mensaje citado.
- * Busca el patrón "(UID: <valor>)". Si no se encuentra, retorna null.
+ * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
+ * En este enfoque, se usa directamente el id del mensaje citado (metadata) para buscar en la BD.
  *
  * @param {Object} quotedMessage - El mensaje citado.
- * @returns {Promise<string|null>} - El UID extraído o null.
+ * @returns {Promise<string|null>} - El identificador extraído o null.
  */
 async function extractFeedbackIdentifier(quotedMessage) {
-  const text = quotedMessage.body;
-  // Buscar el patrón "(UID: <valor>)" (por ejemplo, "(UID: abc123-xyz)")
-  const regex = /\(UID:\s*([a-z0-9\-]+)\)/i;
-  const match = text.match(regex);
-  if (match) {
-    return match[1];
+  // Usar la propiedad id._serialized del mensaje citado.
+  if (quotedMessage.id && quotedMessage.id._serialized) {
+    console.log("Extrayendo originalMsgId del mensaje citado:", quotedMessage.id._serialized);
+    return quotedMessage.id._serialized;
   }
-  console.log("No se encontró UID en el mensaje citado.");
+  console.log("No se encontró el id del mensaje citado en la metadata.");
   return null;
 }
 
 /**
- * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente al UID
- * y construye un mensaje de confirmación que incluya la descripción original, el ID y la categoría.
+ * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente al identificador
+ * (usando el campo originalMsgId) y construye un mensaje de confirmación.
  *
- * @param {string} uniqueId - El UID extraído del mensaje citado.
- * @returns {Promise<string|null>} - El mensaje de confirmación o null si no se encuentra la incidencia.
+ * @param {string} identifier - El identificador extraído (originalMsgId).
+ * @returns {Promise<string|null>} - El mensaje de confirmación o null.
  */
-async function getFeedbackConfirmationMessage(uniqueId) {
-  try {
-    const incidence = await incidenciasDB.buscarIncidenciaPorUniqueIdAsync(uniqueId);
-    if (!incidence) {
-      console.log("No se encontró incidencia con UID: " + uniqueId);
-      return null;
-    }
-    const confirmationMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
-      `${incidence.descripcion}\n` +
-      `ID: ${incidence.id}\n` +
-      `Categoría: ${incidence.categoria}`;
-    return confirmationMessage;
-  } catch (error) {
-    console.error("Error al obtener la incidencia por UID:", error);
+async function getFeedbackConfirmationMessage(identifier) {
+  // Intentar buscar la incidencia por originalMsgId.
+  const incidence = await incidenciasDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
+  if (!incidence) {
+    console.log("No se encontró incidencia con originalMsgId: " + identifier);
     return null;
   }
+  const confirmationMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
+    `${incidence.descripcion}\n` +
+    `ID: ${incidence.id}\n` +
+    `Categoría: ${incidence.categoria}`;
+  return confirmationMessage;
 }
 
 module.exports = { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage };
