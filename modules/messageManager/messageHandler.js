@@ -1,7 +1,7 @@
 // vicebot/modules/messageManager/messageHandler.js
 const { handleCommands } = require('./commandsHandler');
 const { handleIncidence } = require('../../modules/incidenceManager/incidenceHandler');
-const { detectFeedbackRequest } = require('../../modules/incidenceManager/feedbackProcessor');
+const { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage } = require('../../modules/incidenceManager/feedbackProcessor');
 
 async function handleMessage(client, message) {
   try {
@@ -11,10 +11,19 @@ async function handleMessage(client, message) {
     if (message.hasQuotedMsg) {
       const isFeedback = await detectFeedbackRequest(client, message);
       if (isFeedback) {
-        // Aquí puedes implementar la lógica para obtener y enviar retroalimentación.
-        // Por ejemplo, podrías recuperar información de la incidencia y responder con un mensaje.
-        await chat.sendMessage("Retroalimentación solicitada: [Aquí se mostrarán los avances o el estado de la tarea].");
-        return; // Se retorna para no procesar el mensaje como incidencia o comando.
+        const quotedMessage = await message.getQuotedMessage();
+        const uid = await extractFeedbackIdentifier(quotedMessage);
+        if (uid) {
+          const feedbackMsg = await getFeedbackConfirmationMessage(uid);
+          if (feedbackMsg) {
+            await chat.sendMessage(feedbackMsg);
+          } else {
+            await chat.sendMessage("No se encontró información de la incidencia para retroalimentación.");
+          }
+        } else {
+          await chat.sendMessage("No se pudo extraer el UID de la incidencia citada.");
+        }
+        return; // Se detiene el procesamiento, ya que se manejó la retroalimentación.
       }
     }
 

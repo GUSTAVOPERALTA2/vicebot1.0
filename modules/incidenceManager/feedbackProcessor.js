@@ -1,3 +1,4 @@
+// vicebot/modules/incidenceManager/feedbackProcessor.js
 const incidenciasDB = require('./incidenceDB');
 
 /**
@@ -62,7 +63,29 @@ async function extractFeedbackIdentifier(quotedMessage) {
   return null;
 }
 
-module.exports = { detectFeedbackRequest, extractFeedbackIdentifier };
+/**
+ * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente al UID
+ * y construye un mensaje de confirmación que incluya la descripción original, el ID y la categoría.
+ *
+ * @param {string} uniqueId - El UID extraído del mensaje citado.
+ * @returns {Promise<string|null>} - El mensaje de confirmación o null si no se encuentra la incidencia.
+ */
+async function getFeedbackConfirmationMessage(uniqueId) {
+  try {
+    const incidence = await incidenciasDB.buscarIncidenciaPorUniqueIdAsync(uniqueId);
+    if (!incidence) {
+      console.log("No se encontró incidencia con UID: " + uniqueId);
+      return null;
+    }
+    const confirmationMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
+      `${incidence.descripcion}\n` +
+      `ID: ${incidence.id}\n` +
+      `Categoría: ${incidence.categoria}`;
+    return confirmationMessage;
+  } catch (error) {
+    console.error("Error al obtener la incidencia por UID:", error);
+    return null;
+  }
+}
 
-
-//nuevo feedback
+module.exports = { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage };
