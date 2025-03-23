@@ -66,5 +66,30 @@
       "avance",
       "actualización"
     ]
+  },
+  "respuestas": {
+    "confirmacion": {
+      "frases": [
+        "confirmo",
+        "listo",
+        "finalizado"
+      ],
+      "palabras": [
+        "listo",
+        "ok"
+      ]
+    },
+    "feedback": {
+      "frases": [
+        "avance",
+        "estado",
+        "progreso"
+      ],
+      "palabras": [
+        "avance",
+        "estado",
+        "progreso"
+      ]
+    }
   }
 }
