@@ -13,6 +13,7 @@ function initDB() {
       db.run(`CREATE TABLE IF NOT EXISTS incidencias (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uniqueMessageId TEXT,
+                originalMsgId TEXT,
                 descripcion TEXT,
                 reportadoPor TEXT,
                 fechaCreacion TEXT,
@@ -32,10 +33,11 @@ function getDB() {
 
 function insertarIncidencia(incidencia, callback) {
   const sql = `INSERT INTO incidencias 
-    (uniqueMessageId, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, grupoOrigen, media) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (uniqueMessageId, originalMsgId, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, grupoOrigen, media) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   db.run(sql, [
     incidencia.uniqueMessageId,
+    incidencia.originalMsgId,
     incidencia.descripcion,
     incidencia.reportadoPor,
     incidencia.fechaCreacion,
@@ -66,9 +68,23 @@ function buscarIncidenciaPorUniqueIdAsync(uniqueId) {
   });
 }
 
-/* Funciones adicionales para soportar los comandos */
+function buscarIncidenciaPorOriginalMsgIdAsync(originalMsgId) {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM incidencias WHERE originalMsgId = ? LIMIT 1";
+    db.get(sql, [originalMsgId], (err, row) => {
+      if (err) return reject(err);
+      if (row && row.confirmaciones) {
+        try {
+          row.confirmaciones = JSON.parse(row.confirmaciones);
+        } catch (e) {
+          console.error("Error al parsear confirmaciones:", e);
+        }
+      }
+      resolve(row);
+    });
+  });
+}
 
-// Busca una incidencia por ID (convertido a string o número según convenga)
 function getIncidenciaById(incidenciaId, callback) {
   const sql = "SELECT * FROM incidencias WHERE id = ?";
   db.get(sql, [incidenciaId], (err, row) => {
@@ -83,7 +99,6 @@ function getIncidenciaById(incidenciaId, callback) {
   });
 }
 
-// Obtiene incidencias cuya categoría contenga el valor dado (usamos LIKE)
 function getIncidenciasByCategory(category, callback) {
   const sql = "SELECT * FROM incidencias WHERE categoria LIKE ?";
   db.all(sql, [`%${category}%`], (err, rows) => {
@@ -106,7 +121,6 @@ function getIncidenciasByCategory(category, callback) {
   });
 }
 
-// Obtiene incidencias por fecha (suponiendo formato YYYY-MM-DD en la fechaCreacion)
 function getIncidenciasByDate(date, callback) {
   const sql = "SELECT * FROM incidencias WHERE fechaCreacion LIKE ?";
   db.all(sql, [`${date}%`], (err, rows) => {
@@ -129,7 +143,6 @@ function getIncidenciasByDate(date, callback) {
   });
 }
 
-// Obtiene incidencias en un rango de fechas
 function getIncidenciasByRange(fechaInicio, fechaFin, callback) {
   const sql = "SELECT * FROM incidencias WHERE fechaCreacion >= ? AND fechaCreacion <= ?";
   db.all(sql, [fechaInicio, fechaFin], (err, rows) => {
@@ -157,6 +170,7 @@ module.exports = {
   getDB,
   insertarIncidencia,
   buscarIncidenciaPorUniqueIdAsync,
+  buscarIncidenciaPorOriginalMsgIdAsync,
   getIncidenciaById,
   getIncidenciasByCategory,
   getIncidenciasByDate,
