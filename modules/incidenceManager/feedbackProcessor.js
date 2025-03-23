@@ -74,82 +74,98 @@ async function extractFeedbackIdentifier(quotedMessage) {
 }
 
 /**
- * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * al identificador (ya sea numérico o el originalMsgId) y construye un mensaje de confirmación.
- * 
- * Si la incidencia tiene un objeto de confirmaciones (para múltiples categorías):
- *  - Si aún quedan categorías pendientes, devuelve un mensaje de retroalimentación parcial,
- *    indicando qué categorías han confirmado y cuáles están pendientes, junto con el tiempo transcurrido.
- *  - Si todas las confirmaciones se han recibido, devuelve un mensaje final indicando que la tarea ha sido completada,
- *    mostrando la fecha de creación, la fecha de finalización (hora actual) y el tiempo activo.
+ * detectResponseType - Analiza el texto de la respuesta para determinar si es una confirmación
+ * final o simplemente feedback parcial.
  *
- * Si no hay confirmaciones múltiples, devuelve la retroalimentación básica.
- *
- * @param {string} identifier - El identificador extraído.
- * @returns {Promise<string|null>} - El mensaje de confirmación o null si no se encuentra la incidencia.
+ * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
+ * @param {string} text - El texto de la respuesta.
+ * @returns {string} - "confirmacion", "feedback" o "none".
  */
-async function getFeedbackConfirmationMessage(identifier) {
-  let incidence;
-  if (/^\d+$/.test(identifier)) {
-    // Es numérico: buscar por id.
-    incidence = await new Promise((resolve, reject) => {
-      incidenceDB.getIncidenciaById(identifier, (err, row) => {
+function detectResponseType(client, text) {
+  const normalizedText = text.trim().toLowerCase();
+  const confirmacionPalabras = client.keywordsData.respuestas?.confirmacion?.palabras || [];
+  const confirmacionFrases = client.keywordsData.respuestas?.confirmacion?.frases || [];
+  const feedbackPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
+  const feedbackFrases = client.keywordsData.respuestas?.feedback?.frases || [];
+  
+  if (confirmacionPalabras.includes(normalizedText)) {
+    return "confirmacion";
+  }
+  for (let frase of confirmacionFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) {
+      return "confirmacion";
+    }
+  }
+  for (let palabra of feedbackPalabras) {
+    if (normalizedText.includes(palabra.toLowerCase())) {
+      return "feedback";
+    }
+  }
+  for (let frase of feedbackFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) {
+      return "feedback";
+    }
+  }
+  return "none";
+}
+
+/**
+ * processFeedbackResponse - Procesa la respuesta de feedback.
+ * Si el texto corresponde a confirmación (por ejemplo, "listo"), se actualiza la incidencia a "completada"
+ * y se genera un mensaje final.
+ * Si corresponde a feedback (por ejemplo, "avance"), se agrega el feedback al historial y se genera un mensaje parcial.
+ *
+ * @param {Object} client - El cliente de WhatsApp.
+ * @param {Object} message - El mensaje de feedback recibido.
+ * @param {Object} incidence - La incidencia correspondiente.
+ * @returns {Promise<string>} - Un mensaje resultante que se enviará al usuario.
+ */
+async function processFeedbackResponse(client, message, incidence) {
+  const responseText = message.body;
+  const responseType = detectResponseType(client, responseText);
+  
+  if (responseType === "confirmacion") {
+    // Actualizar estado a "completada"
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
         if (err) return reject(err);
-        resolve(row);
+        const creationTime = moment(incidence.fechaCreacion);
+        const completionTime = moment();
+        const duration = moment.duration(completionTime.diff(creationTime));
+        const days = Math.floor(duration.asDays());
+        const hours = duration.hours();
+        const minutes = duration.minutes();
+        const finalMsg = `ESTA TAREA HA SIDO COMPLETADA.\n` +
+          `Fecha de creación: ${incidence.fechaCreacion}\n` +
+          `Fecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\n` +
+          `Tiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+        resolve(finalMsg);
+      });
+    });
+  } else if (responseType === "feedback") {
+    // Crear un registro de feedback
+    const feedbackRecord = {
+      usuario: message.author || message.from,
+      comentario: responseText,
+      fecha: new Date().toISOString()
+    };
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+        if (err) return reject(err);
+        const partialMsg = `Feedback registrado para la incidencia ${incidence.id}.\n` +
+          `Comentario: ${responseText}`;
+        resolve(partialMsg);
       });
     });
   } else {
-    // Buscar por originalMsgId.
-    incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
+    return "No se reconoció un tipo de respuesta válido.";
   }
-  if (!incidence) {
-    console.log("No se encontró incidencia con el identificador: " + identifier);
-    return null;
-  }
-  
-  // Si la incidencia tiene confirmaciones múltiples (un objeto con más de una clave)
-  if (incidence.confirmaciones && typeof incidence.confirmaciones === "object") {
-    const keys = Object.keys(incidence.confirmaciones);
-    const confirmed = keys.filter(key => incidence.confirmaciones[key] !== false);
-    const pending = keys.filter(key => incidence.confirmaciones[key] === false);
-    
-    if (pending.length > 0) {
-      const creationTime = moment(incidence.fechaCreacion);
-      const now = moment();
-      const duration = moment.duration(now.diff(creationTime));
-      const days = Math.floor(duration.asDays());
-      const hours = duration.hours();
-      const minutes = duration.minutes();
-      const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
-      const partialMessage = `RETROALIMENTACION PARCIAL:\n` +
-        `Incidencia: ${incidence.descripcion}\n` +
-        `ID: ${incidence.id}\n` +
-        `Categorías confirmadas: ${confirmed.join(", ") || "ninguna"}\n` +
-        `Categorías pendientes: ${pending.join(", ") || "ninguna"}\n` +
-        `Tiempo transcurrido: ${durationStr}`;
-      return partialMessage;
-    } else {
-      const creationTime = moment(incidence.fechaCreacion);
-      const completionTime = moment();
-      const duration = moment.duration(completionTime.diff(creationTime));
-      const days = Math.floor(duration.asDays());
-      const hours = duration.hours();
-      const minutes = duration.minutes();
-      const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
-      const finalMessage = `ESTA TAREA HA SIDO COMPLETADA.\n` +
-        `Fecha de creación: ${incidence.fechaCreacion}\n` +
-        `Fecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\n` +
-        `Tiempo activo: ${durationStr}`;
-      return finalMessage;
-    }
-  }
-  
-  // Si no hay confirmaciones múltiples, enviar retroalimentación básica.
-  const basicMessage = `RETROALIMENTACION SOLICITADA PARA:\n` +
-    `${incidence.descripcion}\n` +
-    `ID: ${incidence.id}\n` +
-    `Categoría: ${incidence.categoria}`;
-  return basicMessage;
 }
 
-module.exports = { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage };
+module.exports = { 
+  detectFeedbackRequest, 
+  extractFeedbackIdentifier, 
+  getFeedbackConfirmationMessage,
+  detectResponseType,
+  processFeedbackResponse
+};

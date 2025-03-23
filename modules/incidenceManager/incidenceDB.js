@@ -10,6 +10,7 @@ function initDB() {
       console.error("Error al abrir la BD:", err);
     } else {
       console.log("Base de datos iniciada.");
+      // Se incluye una nueva columna 'feedbackHistory' para almacenar el historial en formato JSON.
       db.run(`CREATE TABLE IF NOT EXISTS incidencias (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uniqueMessageId TEXT,
@@ -20,6 +21,7 @@ function initDB() {
                 estado TEXT,
                 categoria TEXT,
                 confirmaciones TEXT,
+                feedbackHistory TEXT,
                 grupoOrigen TEXT,
                 media TEXT
               )`);
@@ -33,8 +35,8 @@ function getDB() {
 
 function insertarIncidencia(incidencia, callback) {
   const sql = `INSERT INTO incidencias 
-    (uniqueMessageId, originalMsgId, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, grupoOrigen, media) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (uniqueMessageId, originalMsgId, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, feedbackHistory, grupoOrigen, media) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   db.run(sql, [
     incidencia.uniqueMessageId,
     incidencia.originalMsgId,
@@ -44,6 +46,7 @@ function insertarIncidencia(incidencia, callback) {
     incidencia.estado,
     incidencia.categoria,
     incidencia.confirmaciones ? JSON.stringify(incidencia.confirmaciones) : null,
+    JSON.stringify([]), // Iniciar feedbackHistory como un arreglo vacío.
     incidencia.grupoOrigen,
     incidencia.media
   ], function(err) {
@@ -179,6 +182,27 @@ function updateConfirmaciones(incidenciaId, confirmaciones, callback) {
   });
 }
 
+function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
+  // Primero, obtener el historial actual
+  const sqlSelect = "SELECT feedbackHistory FROM incidencias WHERE id = ?";
+  db.get(sqlSelect, [incidenciaId], (err, row) => {
+    if (err) return callback(err);
+    let history = [];
+    if (row && row.feedbackHistory) {
+      try {
+        history = JSON.parse(row.feedbackHistory);
+      } catch(e) {
+        console.error("Error al parsear feedbackHistory:", e);
+      }
+    }
+    history.push(newFeedback);
+    const sqlUpdate = "UPDATE incidencias SET feedbackHistory = ? WHERE id = ?";
+    db.run(sqlUpdate, [JSON.stringify(history), incidenciaId], function(err) {
+      callback(err);
+    });
+  });
+}
+
 module.exports = {
   initDB,
   getDB,
@@ -190,5 +214,6 @@ module.exports = {
   getIncidenciasByDate,
   getIncidenciasByRange,
   updateIncidenciaStatus,
-  updateConfirmaciones
+  updateConfirmaciones,
+  updateFeedbackHistory
 };
