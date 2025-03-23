@@ -1,12 +1,12 @@
 const incidenceDB = require('./incidenceDB');
 
 /**
- * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia original
+ * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
  * contiene palabras o frases indicativas de solicitar retroalimentación.
  *
- * @param {Object} client - El cliente de WhatsApp (debe tener client.keywordsData).
- * @param {Object} message - El mensaje de respuesta que cita el mensaje original.
- * @returns {Promise<boolean>} - Retorna true si se detecta retroalimentación, false en caso contrario.
+ * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
+ * @param {Object} message - El mensaje de respuesta que cita otro mensaje.
+ * @returns {Promise<boolean>} - True si se detecta retroalimentación; false en caso contrario.
  */
 async function detectFeedbackRequest(client, message) {
   if (!message.hasQuotedMsg) {
@@ -42,36 +42,31 @@ async function detectFeedbackRequest(client, message) {
 
 /**
  * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
- * Primero intenta obtener el id del mensaje citado (originalMsgId) de la metadata.
- * Si no se encuentra, busca en el texto patrones típicos (por ejemplo, "Detalles de la incidencia (ID: 10)")
- * o simplemente "ID: 10".
+ * Si el mensaje citado proviene de /tareaDetalles (contiene "Detalles de la incidencia"),
+ * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
  *
  * @param {Object} quotedMessage - El mensaje citado.
  * @returns {Promise<string|null>} - El identificador extraído o null.
  */
 async function extractFeedbackIdentifier(quotedMessage) {
-  // Intentar obtener de la metadata.
-  if (quotedMessage.id && quotedMessage.id._serialized) {
-    console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
-    return quotedMessage.id._serialized;
-  }
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Buscar patrón en mensajes de detalle: "Detalles de la incidencia (ID: <número>)"
-  let regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
-  let match = text.match(regex);
-  if (match) {
-    console.log("Identificador numérico encontrado en mensaje de detalles:", match[1]);
-    return match[1];
+  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles,
+  // se extrae el id numérico usando una expresión regular.
+  if (text.includes("Detalles de la incidencia")) {
+    const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
+    const match = text.match(regex);
+    if (match) {
+      console.log("Identificador numérico encontrado en mensaje de detalles:", match[1]);
+      return match[1];
+    }
   }
   
-  // Fallback: buscar patrón "ID: <número>"
-  regex = /ID:\s*(\d+)/i;
-  match = text.match(regex);
-  if (match) {
-    console.log("Identificador numérico encontrado en mensaje citado:", match[1]);
-    return match[1];
+  // En otro caso, se usa la metadata (originalMsgId almacenado en el mensaje citado).
+  if (quotedMessage.id && quotedMessage.id._serialized) {
+    console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
+    return quotedMessage.id._serialized;
   }
   
   console.log("No se encontró identificador en el mensaje citado.");
@@ -79,9 +74,9 @@ async function extractFeedbackIdentifier(quotedMessage) {
 }
 
 /**
- * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente al identificador
- * y construye un mensaje de confirmación con la información del incidente.
- * Si el identificador es numérico, se busca por id; de lo contrario, se busca por originalMsgId.
+ * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
+ * al identificador (ya sea numérico o el originalMsgId) y construye un mensaje
+ * de confirmación con la información de la incidencia.
  *
  * @param {string} identifier - El identificador extraído.
  * @returns {Promise<string|null>} - El mensaje de confirmación o null si no se encuentra la incidencia.
@@ -89,7 +84,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
 async function getFeedbackConfirmationMessage(identifier) {
   let incidence;
   if (/^\d+$/.test(identifier)) {
-    // Es numérico: buscar por id.
+    // Si el identificador es numérico, buscar por id.
     incidence = await new Promise((resolve, reject) => {
       incidenceDB.getIncidenciaById(identifier, (err, row) => {
         if (err) return reject(err);
@@ -97,7 +92,7 @@ async function getFeedbackConfirmationMessage(identifier) {
       });
     });
   } else {
-    // Buscar por originalMsgId.
+    // Caso contrario, buscar por originalMsgId.
     incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
   }
   if (!incidence) {
@@ -113,3 +108,4 @@ async function getFeedbackConfirmationMessage(identifier) {
 
 module.exports = { detectFeedbackRequest, extractFeedbackIdentifier, getFeedbackConfirmationMessage };
 
+//dos logicas
