@@ -1,6 +1,8 @@
+// vicebot/modules/messageManager/commandsHandler.js
 const config = require('../../config/config');
 const { addEntry, removeEntry, editEntry, loadKeywords } = require('../../config/keywordsManager');
-const incidenciasDB = require('../incidenceManager/incidenceDB');
+// Actualizamos la ruta: ahora se requiere incidenceDB desde incidenceManager
+const incidenceDB = require('../incidenceManager/incidenceDB');
 const { registerUser, getUser, loadUsers, saveUsers } = require('../../config/userManager');
 
 async function handleCommands(client, message) {
@@ -8,10 +10,12 @@ async function handleCommands(client, message) {
   const senderId = message.author ? message.author : message.from;
   const body = message.body ? message.body.trim() : "";
   
+  // Normalizamos el comando a minúsculas para comparar
   const normalizedBody = body.toLowerCase();
   console.log(`Procesando comando: "${body}" desde: ${senderId}`);
 
-  // Comando /ayuda para usuarios
+  // ------------------- Comandos para administradores -------------------
+  // Comando para usuarios: /ayuda (excluyendo /helpAdmin)
   if (normalizedBody.startsWith('/ayuda') && !normalizedBody.startsWith('/helpadmin')) {
     const helpMessage =
       "*COMANDOS USUARIOS* \n\n" +
@@ -27,7 +31,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // Comando /helpadmin para administradores
+  // Comando para administradores: /helpadmin
   if (normalizedBody.startsWith('/helpadmin')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /helpadmin - getUser:", currentUser);
@@ -36,12 +40,12 @@ async function handleCommands(client, message) {
       return true;
     }
     const helpAdminMessage =
-      "*COMANDOS ADMINISTRADORES*\n\n" +
+      "*COMANDOS ADMINISTRADORES*\n\n\n" +
       "*KEYWORDS*\n\n" +
       "*/reloadKeywords* \n Recarga el archivo de keywords.\n\n" +
       "*/addKeyword <categoria> <tipo> <entrada>* \n Agrega una nueva entrada.\n\n" +
       "*/editKeyword <categoria> <tipo> <oldEntry>|<newEntry>* \n Edita una entrada.\n\n" +
-      "*/viewKeywords* \n Muestra las keywords guardadas.\n\n" +
+      "*/viewKeywords* \n Muestra las keywords guardadas.\n\n\n" +
       "*USERS*\n\n" +
       "*/registerUser <id> | <nombre-apellido> | <cargo> | <rol>* \n Registra un usuario.\n\n" +
       "*/editUser <id> | <nombre-apellido> | <cargo> | <rol>* \n Edita la información de un usuario.\n\n" +
@@ -51,8 +55,9 @@ async function handleCommands(client, message) {
     await chat.sendMessage(helpAdminMessage);
     return true;
   }
-
-  // /viewkeywords (solo admin)
+  // -------------------------------COMANDOS PARA PALABRAS -------------------------------------------
+  
+  // Comando: /viewkeywords (solo admin)
   if (normalizedBody.startsWith('/viewkeywords')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -79,7 +84,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /reloadkeywords (solo admin)
+  // Comando: /reloadkeywords
   if (normalizedBody.startsWith('/reloadkeywords')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /reloadkeywords - getUser:", currentUser);
@@ -93,7 +98,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /addKeyword (solo admin)
+  // Comando: /addKeyword <categoria> <tipo> <entrada>
   if (normalizedBody.startsWith('/addkeyword')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /addkeyword - getUser:", currentUser);
@@ -119,7 +124,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /editKeyword (solo admin)
+  // Comando: /editKeyword <categoria> <tipo> <oldEntry>|<newEntry>
   if (normalizedBody.startsWith('/editkeyword')) {
     const currentUser = getUser(senderId);
     console.log("DEBUG /editkeyword - getUser:", currentUser);
@@ -151,7 +156,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /registeruser (solo admin)
+  // Comando: /registeruser <id> | <nombre-apellido> | <cargo> | <rol> (solo admin)
   if (normalizedBody.startsWith('/registeruser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -179,7 +184,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /edituser (solo admin)
+  // Comando: /edituser <id> | <nombre-apellido> | <cargo> | <rol> (solo admin)
   if (normalizedBody.startsWith('/edituser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -211,7 +216,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /removeuser (solo admin)
+  // Comando: /removeuser <id> (solo admin)
   if (normalizedBody.startsWith('/removeuser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -239,7 +244,7 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /viewuser (solo admin)
+  // Comando: /viewuser (solo admin)
   if (normalizedBody.startsWith('/viewuser')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
@@ -256,13 +261,13 @@ async function handleCommands(client, message) {
     return true;
   }
 
-  // /id
+  // Comando: /id
   if (normalizedBody.startsWith('/id')) {
     await chat.sendMessage(`Tu ID es: ${senderId}`);
     return true;
   }
 
-  // Comandos de incidencias:
+  // ------------------- Comandos para incidencias -------------------
   if (normalizedBody.startsWith('/tareas ') &&
       !normalizedBody.startsWith('/tareasfecha') &&
       !normalizedBody.startsWith('/tareasrango') &&
@@ -278,7 +283,7 @@ async function handleCommands(client, message) {
       await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
       return true;
     }
-    incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
+    incidenceDB.getIncidenciasByCategory(categoria, (err, rows) => {
       if (err) {
         chat.sendMessage("Error al consultar las incidencias.");
       } else {
@@ -295,8 +300,8 @@ async function handleCommands(client, message) {
     });
     return true;
   }
-
-  // /tareasfecha <YYYY-MM-DD>
+ 
+  // Comando: /tareasfecha <YYYY-MM-DD>
   if (normalizedBody.startsWith('/tareasfecha')) {
     const parts = body.split(' ');
     if (parts.length < 2) {
@@ -304,7 +309,7 @@ async function handleCommands(client, message) {
       return true;
     }
     const date = parts[1].trim();
-    incidenciasDB.getIncidenciasByDate(date, (err, rows) => {
+    incidenceDB.getIncidenciasByDate(date, (err, rows) => {
       if (err) {
         chat.sendMessage("Error al consultar incidencias por fecha.");
       } else {
@@ -321,8 +326,8 @@ async function handleCommands(client, message) {
     });
     return true;
   }
-
-  // /tareasrango <fechaInicio> <fechaFin>
+ 
+  // Comando: /tareasrango <fechaInicio> <fechaFin>
   if (normalizedBody.startsWith('/tareasrango')) {
     const parts = body.split(' ');
     if (parts.length < 3) {
@@ -333,7 +338,7 @@ async function handleCommands(client, message) {
     let fechaFin = parts[2].trim();
     fechaInicio = `${fechaInicio}T00:00:00.000Z`;
     fechaFin = `${fechaFin}T23:59:59.999Z`;
-    incidenciasDB.getIncidenciasByRange(fechaInicio, fechaFin, (err, rows) => {
+    incidenceDB.getIncidenciasByRange(fechaInicio, fechaFin, (err, rows) => {
       if (err) {
         chat.sendMessage("Error al consultar incidencias por rango.");
       } else {
@@ -350,8 +355,8 @@ async function handleCommands(client, message) {
     });
     return true;
   }
-
-  // /tareaspendientes <categoria>
+ 
+  // Comando: /tareaspendientes <categoria>
   if (normalizedBody.startsWith('/tareaspendientes')) {
     const parts = body.split(' ');
     if (parts.length < 2) {
@@ -363,7 +368,7 @@ async function handleCommands(client, message) {
       await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
       return true;
     }
-    incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
+    incidenceDB.getIncidenciasByCategory(categoria, (err, rows) => {
       if (err) {
         chat.sendMessage("Error al consultar incidencias.");
       } else {
@@ -381,8 +386,8 @@ async function handleCommands(client, message) {
     });
     return true;
   }
-
-  // /tareascompletadas <categoria>
+ 
+  // Comando: /tareascompletadas <categoria>
   if (normalizedBody.startsWith('/tareascompletadas')) {
     const parts = body.split(' ');
     if (parts.length < 2) {
@@ -394,7 +399,7 @@ async function handleCommands(client, message) {
       await chat.sendMessage("Categoría inválida. Usa: it, ama o man.");
       return true;
     }
-    incidenciasDB.getIncidenciasByCategory(categoria, (err, rows) => {
+    incidenceDB.getIncidenciasByCategory(categoria, (err, rows) => {
       if (err) {
         chat.sendMessage("Error al consultar incidencias.");
       } else {
@@ -412,8 +417,8 @@ async function handleCommands(client, message) {
     });
     return true;
   }
-
-  // /tareaDetalles <id>
+ 
+  // Comando: /tareaDetalles <id>
   if (normalizedBody.startsWith('/tareadetalles')) {
     const parts = body.split(' ');
     if (parts.length < 2) {
@@ -421,7 +426,7 @@ async function handleCommands(client, message) {
       return true;
     }
     const incId = parts[1].trim();
-    incidenciasDB.getIncidenciaById(incId, async (err, row) => {
+    incidenceDB.getIncidenciaById(incId, async (err, row) => {
       if (err) {
         await chat.sendMessage("Error al consultar la incidencia.");
       } else if (!row) {
@@ -450,11 +455,9 @@ async function handleCommands(client, message) {
     });
     return true;
   }
-
+  
+  // Si ningún comando se detecta, se retorna false.
   return false;
 }
 
 module.exports = { handleCommands };
-
-
-//COMANDAS
