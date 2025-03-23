@@ -165,6 +165,13 @@ function getIncidenciasByRange(fechaInicio, fechaFin, callback) {
   });
 }
 
+function updateIncidenciaStatus(incidenciaId, estado, callback) {
+  const sql = "UPDATE incidencias SET estado = ? WHERE id = ?";
+  db.run(sql, [estado, incidenciaId], function(err) {
+    callback(err);
+  });
+}
+
 module.exports = {
   initDB,
   getDB,
@@ -174,5 +181,6 @@ module.exports = {
   getIncidenciaById,
   getIncidenciasByCategory,
   getIncidenciasByDate,
-  getIncidenciasByRange
+  getIncidenciasByRange,
+  updateIncidenciaStatus
 };
