@@ -1,7 +1,12 @@
 const moment = require('moment-timezone');
 const config = require('./config');
-const incidenciasDB = require('../modules/incidenceManager/incidenceDB');
+const incidenceDB = require('../modules/incidenceManager/incidenceDB');
 
+/**
+ * calcularTiempoSinRespuesta - Calcula el tiempo transcurrido entre la fecha de creación y el momento actual.
+ * @param {string} fechaCreacion - Fecha en formato ISO.
+ * @returns {string} - Tiempo formateado en días, horas y minutos.
+ */
 function calcularTiempoSinRespuesta(fechaCreacion) {
   const ahora = moment();
   const inicio = moment(fechaCreacion);
@@ -12,6 +17,14 @@ function calcularTiempoSinRespuesta(fechaCreacion) {
   return `${dias} día(s), ${horas} hora(s), ${minutos} minuto(s)`;
 }
 
+/**
+ * checkPendingIncidences - Revisa las incidencias pendientes y envía recordatorios individuales.
+ * Se ejecuta solo en horario laboral (entre 8 y 21, hora de "America/Hermosillo").
+ * Si una incidencia involucra múltiples categorías, se envía recordatorio a cada grupo asignado.
+ *
+ * @param {Object} client - Cliente de WhatsApp.
+ * @param {boolean} initialRun - Si true, el umbral es 0h; si false, es 1h.
+ */
 function checkPendingIncidences(client, initialRun = false) {
   const now = moment().tz("America/Hermosillo");
   const currentHour = now.hour();
@@ -19,10 +32,12 @@ function checkPendingIncidences(client, initialRun = false) {
     console.log(`Fuera del horario laboral (hora actual: ${currentHour}). No se enviará recordatorio.`);
     return;
   }
+  
+  // Umbral de tiempo: 0h si initialRun, o 1h en caso contrario.
   const threshold = initialRun ? now.toISOString() : now.clone().subtract(1, 'hour').toISOString();
   console.log(`Chequeando incidencias pendientes (umbral ${initialRun ? '0h' : '1h'}): ${threshold}`);
 
-  const db = incidenciasDB.getDB();
+  const db = incidenceDB.getDB();
   if (!db) {
     console.error("La base de datos no está inicializada.");
     return;
@@ -38,40 +53,45 @@ function checkPendingIncidences(client, initialRun = false) {
       return;
     }
     rows.forEach(row => {
-      const categoria = row.categoria.split(',')[0].trim().toLowerCase();
-      const groupId = config.destinoGrupos[categoria];
-      if (!groupId) {
-        console.warn(`No hay grupo asignado para la categoría: ${categoria}`);
-        return;
-      }
-      const tiempoSinRespuesta = calcularTiempoSinRespuesta(row.fechaCreacion);
-      const fechaFormateada = moment(row.fechaCreacion).format("DD/MM/YYYY hh:mm a");
-      const msg = `*RECORDATORIO: TAREA INCOMPLETA*\n\n` +
-                  `${row.descripcion}\n\n` +
-                  `Fecha de creación: ${fechaFormateada}\n` +
-                  `Tiempo sin respuesta: ${tiempoSinRespuesta}\n` +
-                  `ID: ${row.id}`;
-      console.log(`Enviando recordatorio para incidencia ${row.id} a grupo ${groupId}`);
-      client.getChatById(groupId)
-        .then(chat => {
-          chat.sendMessage(msg);
-          console.log(`Recordatorio enviado para incidencia ${row.id} a grupo ${groupId}.`);
-        })
-        .catch(e => console.error(`Error al enviar recordatorio para incidencia ${row.id}:`, e));
+      // Dividir la cadena de categorías y enviar recordatorio a cada una.
+      const categorias = row.categoria.split(',').map(c => c.trim().toLowerCase());
+      categorias.forEach(categoria => {
+        const groupId = config.destinoGrupos[categoria];
+        if (!groupId) {
+          console.warn(`No hay grupo asignado para la categoría: ${categoria}`);
+          return;
+        }
+        const tiempoSinRespuesta = calcularTiempoSinRespuesta(row.fechaCreacion);
+        const fechaFormateada = moment(row.fechaCreacion).format("DD/MM/YYYY hh:mm a");
+        const msg = `*RECORDATORIO: TAREA INCOMPLETA*\n\n` +
+                    `${row.descripcion}\n\n` +
+                    `Fecha de creación: ${fechaFormateada}\n` +
+                    `Tiempo sin respuesta: ${tiempoSinRespuesta}\n` +
+                    `ID: ${row.id}`;
+        console.log(`Enviando recordatorio para incidencia ${row.id} a grupo ${groupId}`);
+        client.getChatById(groupId)
+          .then(chat => {
+            chat.sendMessage(msg);
+            console.log(`Recordatorio enviado para incidencia ${row.id} a grupo ${groupId}.`);
+          })
+          .catch(e => console.error(`Error al enviar recordatorio para incidencia ${row.id}:`, e));
+      });
     });
   });
 }
 
+/**
+ * startReminder - Inicia la verificación inmediata y periódica (cada 1 hora) de incidencias pendientes.
+ *
+ * @param {Object} client - Cliente de WhatsApp.
+ */
 function startReminder(client) {
-  // Ejecución inmediata con umbral 0h
+  // Ejecución inmediata con umbral 0h.
   checkPendingIncidences(client, true);
-  // Ejecución periódica cada 1 hora con umbral 1h
+  // Ejecución periódica cada 1 hora con umbral 1h.
   setInterval(() => {
     checkPendingIncidences(client, false);
   }, 3600000);
 }
 
 module.exports = { startReminder };
-
-
-//Reminder Final
