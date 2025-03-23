@@ -1,10 +1,9 @@
 // vicebot/modules/incidenceManager/newIncidence.js
 const config = require('../../config/config');
-const incidenciasDB = require('./incidenceDB');
+const incidenceDB = require('./incidenceDB');
 const { MessageMedia } = require('whatsapp-web.js');
 const moment = require('moment-timezone');
-// Ya no requerimos uuid ya que no vamos a mostrar el UID
-// const { v4: uuidv4 } = require('uuid');
+const { v4: uuidv4 } = require('uuid');
 
 async function processNewIncidence(client, message) {
   const chat = await message.getChat();
@@ -62,12 +61,13 @@ async function processNewIncidence(client, message) {
     }
   }
   
-  // En este enfoque, no generamos ni mostramos un UID visible.
-  // Guardamos el id original del mensaje.
+  // Generar un identificador único (aunque en este caso no se muestra, se puede usar para otros fines)
+  const uniqueMessageId = uuidv4();
+  // Obtener el id original del mensaje (metadata)
   const originalMsgId = message.id._serialized;
 
   const nuevaIncidencia = {
-    // uniqueMessageId ya no se usa para mostrar, por eso lo dejamos fuera del mensaje reenviado.
+    uniqueMessageId,
     originalMsgId,
     descripcion: message.body,
     reportadoPor: message.author ? message.author : message.from,
@@ -79,25 +79,26 @@ async function processNewIncidence(client, message) {
     media: mediaData ? mediaData.data : null
   };
   
-  incidenciasDB.insertarIncidencia(nuevaIncidencia, async (err, lastID) => {
+  incidenceDB.insertarIncidencia(nuevaIncidencia, async (err, lastID) => {
     if (err) {
       console.error("Error al insertar incidencia en SQLite:", err);
     } else {
       console.log("Incidencia registrada con ID:", lastID);
 
+      // Función para reenviar la incidencia a los grupos destino.
       async function forwardMessage(targetGroupId, categoryLabel) {
         try {
           const targetChat = await client.getChatById(targetGroupId);
-          // Enviar el mensaje sin incluir un UID visible.
-          const mensajeOriginal = `Nueva tarea recibida:\n\n*${message.body}*`;
+          // Se agrega el ID asignado al mensaje reenviado.
+          const mensajeConID = `Nueva tarea recibida (ID: ${lastID}):\n\n*${message.body}*`;
           if (mediaData && mediaData.data && mediaData.mimetype) {
             console.log(`Enviando mensaje con media a ${categoryLabel}...`);
             const mediaMessage = new MessageMedia(mediaData.mimetype, mediaData.data);
-            await targetChat.sendMessage(mediaMessage, { caption: mensajeOriginal });
+            await targetChat.sendMessage(mediaMessage, { caption: mensajeConID });
           } else {
-            await targetChat.sendMessage(mensajeOriginal);
+            await targetChat.sendMessage(mensajeConID);
           }
-          console.log(`Mensaje reenviado a ${categoryLabel}: ${mensajeOriginal}`);
+          console.log(`Mensaje reenviado a ${categoryLabel}: ${mensajeConID}`);
         } catch (error) {
           console.error(`Error al reenviar mensaje a ${categoryLabel}:`, error);
         }
