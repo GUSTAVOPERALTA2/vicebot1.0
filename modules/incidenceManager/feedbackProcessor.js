@@ -54,7 +54,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles:
+  // Si el mensaje contiene "Detalles de la incidencia", extraemos el ID numérico.
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -77,9 +77,9 @@ async function extractFeedbackIdentifier(quotedMessage) {
 /**
  * detectResponseType - Determina el tipo de respuesta a partir del texto.
  * Se revisan tres casos:
- *  - "confirmacion": para respuestas que confirman (ej. "listo", "ok").
- *  - "feedbackrespuesta": para respuestas de retroalimentación de equipos (ej. "estamos en eso", "en proceso").
- *  - "feedback": para feedback general.
+ *  - "confirmacion": respuestas de confirmación final (ej. "listo", "ok").
+ *  - "feedbackrespuesta": respuestas que indican retroalimentación de equipo (ej. "estamos en eso", "en proceso", "trabajando", "casi").
+ *  - "feedback": feedback general.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
@@ -115,13 +115,14 @@ function detectResponseType(client, text) {
 
 /**
  * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
- * Si la respuesta es de confirmación, se actualiza la incidencia a "completada" y se genera un mensaje final.
- * Si es feedback (general), se agrega el feedback al historial y se devuelve un mensaje de confirmación.
+ * (Esta función se utiliza cuando el solicitante responde directamente, no en el grupo destino).
+ * Si la respuesta es de confirmación, se actualiza el estado a "completada" y se devuelve un mensaje final.
+ * Si es feedback, se registra en el historial.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback recibido.
  * @param {Object} incidence - La incidencia correspondiente.
- * @returns {Promise<string>} - Mensaje resultante para enviar al usuario.
+ * @returns {Promise<string>} - Mensaje resultante para enviar al solicitante.
  */
 async function processFeedbackResponse(client, message, incidence) {
   const responseText = message.body;
@@ -142,7 +143,6 @@ async function processFeedbackResponse(client, message, incidence) {
       });
     });
   } else if (responseType === "feedback") {
-    // Feedback general enviado por el solicitante.
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: responseText,
@@ -161,80 +161,87 @@ async function processFeedbackResponse(client, message, incidence) {
 }
 
 /**
- * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada por un equipo.
- * Independientemente del contenido, el comentario se registra en el historial de la incidencia
- * y se reenvía al grupo principal.
+ * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
+ * en los grupos destino (por el equipo).
+ * Se asume que el mensaje citado es el de solicitud de retroalimentación y que comienza con:
+ * "Se solicita retroalimentacion para la tarea:" y contiene "ID: {id}".
+ * Se extrae el ID, se consulta la incidencia y se registra el feedback en el historial.
  *
  * @param {Object} client - El cliente de WhatsApp.
- * @param {Object} message - El mensaje de feedback recibido en el grupo del equipo.
- * @returns {Promise<string>} - Mensaje de confirmación.
+ * @param {Object} message - El mensaje de feedback enviado en el grupo destino.
+ * @returns {Promise<string>} - Mensaje indicando el resultado.
  */
 async function processTeamFeedbackResponse(client, message) {
-  // Obtener el chat y determinar a qué equipo pertenece el grupo
-  const chat = await message.getChat();
-  const chatId = chat.id._serialized;
-  
-  // Determinar el equipo según la configuración
-  let team = null;
-  for (const [key, groupId] of Object.entries(config.destinoGrupos)) {
-    if (groupId === chatId) {
-      team = key; // "it", "man", "ama"
-      break;
-    }
-  }
-  if (!team) {
-    console.log("El mensaje no proviene de un grupo de feedback reconocido.");
-    return "No se reconoce el grupo para feedback.";
-  }
-  
-  // Verificar que el mensaje cita una solicitud de retroalimentación
+  // Verificar que el mensaje cita otro
   if (!message.hasQuotedMsg) {
-    return "El mensaje no cita una solicitud de retroalimentación.";
+    console.log("El mensaje no cita ningún mensaje.");
+    return "El mensaje no cita la solicitud de retroalimentación.";
   }
+
   const quotedMessage = await message.getQuotedMessage();
-  const identifier = await extractFeedbackIdentifier(quotedMessage);
-  if (!identifier) {
-    return "No se pudo extraer el identificador de la incidencia.";
+  const quotedText = quotedMessage.body;
+  
+  // Verificar que el mensaje citado empiece con la frase esperada
+  if (!quotedText.startsWith("Se solicita retroalimentacion para la tarea:")) {
+    console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
+    return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Consultar la incidencia en la BD
-  let incidence;
-  if (/^\d+$/.test(identifier)) {
-    incidence = await new Promise((resolve, reject) => {
-      incidenceDB.getIncidenciaById(identifier, (err, row) => {
-        if (err) return reject(err);
-        resolve(row);
-      });
-    });
-  } else {
-    incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
+  // Extraer el ID numérico del mensaje citado (buscando "ID: {id}")
+  const regex = /ID:\s*(\d+)/i;
+  const match = quotedText.match(regex);
+  if (!match) {
+    console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
+    return "No se pudo extraer el ID de la incidencia del mensaje citado.";
   }
+  const incidenceId = match[1];
+  console.log("ID extraído:", incidenceId);
+
+  // Consultar la incidencia en la BD usando el ID
+  let incidence = await new Promise((resolve, reject) => {
+    incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
   if (!incidence) {
+    console.log("No se encontró la incidencia con el ID:", incidenceId);
     return "No se encontró la incidencia correspondiente.";
   }
   
   // Crear el registro de feedback del equipo
   const feedbackRecord = {
     usuario: message.author || message.from,
-    comentario: message.body,
+    comentario: message.body, // El contenido de la respuesta del equipo.
     fecha: new Date().toISOString(),
-    equipo: team
+    equipo: determineTeamFromGroup(message)
   };
   
-  // Actualizar el historial de feedback en la BD y notificar al grupo principal.
   return new Promise((resolve, reject) => {
     incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, async (err) => {
       if (err) return reject(err);
-      try {
-        const mainChat = await client.getChatById(config.groupPruebaId);
-        const feedbackMsg = `Feedback recibido para la incidencia ${incidence.id} del equipo ${team}:\n${message.body}`;
-        await mainChat.sendMessage(feedbackMsg);
-        resolve("Feedback registrado y notificado al grupo principal.");
-      } catch (e) {
-        reject(e);
-      }
+      console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
+      // Registrar en el log que se guardó la respuesta.
+      resolve("Feedback del equipo registrado correctamente.");
     });
   });
+}
+
+/**
+ * determineTeamFromGroup - Dado el id del chat, determina a qué equipo corresponde.
+ *
+ * @param {Object} message - El mensaje recibido.
+ * @returns {string|null} - El equipo (por ejemplo, "it", "man", "ama") o null si no se encuentra.
+ */
+function determineTeamFromGroup(message) {
+  if (!message || !message._data || !message._data.chatId) return null;
+  const chatId = message._data.chatId;
+  for (const [key, groupId] of Object.entries(config.destinoGrupos)) {
+    if (groupId === chatId) {
+      return key; // "it", "man", "ama"
+    }
+  }
+  return null;
 }
 
 /**
