@@ -1,6 +1,5 @@
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment');
-const { sendFeedbackRequestToGroups } = require('./feedbackNotifier');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
@@ -54,7 +53,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles:
+  // Si es un mensaje de detalles, extraer el id numérico.
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -64,7 +63,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // En otro caso, se utiliza la metadata (originalMsgId) del mensaje citado.
+  // Caso contrario, usar la metadata.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -75,47 +74,50 @@ async function extractFeedbackIdentifier(quotedMessage) {
 }
 
 /**
- * detectResponseType - Determina el tipo de respuesta (confirmación o feedback) 
- * a partir del texto recibido, comparándolo con las palabras y frases definidas en el JSON.
+ * detectResponseType - Determina el tipo de respuesta a partir del texto.
+ * Se revisan tres casos:
+ *  - "confirmacion": palabras o frases en respuestas.confirmacion (por ejemplo, "listo")
+ *  - "feedbackrespuesta": palabras o frases en respuestas.retroalimentacionRespuesta (cuando se responde al mensaje de solicitud)
+ *  - "feedback": palabras o frases en respuestas.feedback (para feedback general)
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
- * @returns {string} - "confirmacion", "feedback" o "none".
+ * @returns {string} - "confirmacion", "feedbackrespuesta", "feedback" o "none".
  */
 function detectResponseType(client, text) {
   const normalizedText = text.trim().toLowerCase();
-  const confirmacionPalabras = client.keywordsData.respuestas?.confirmacion?.palabras || [];
-  const confirmacionFrases = client.keywordsData.respuestas?.confirmacion?.frases || [];
-  const feedbackPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
-  const feedbackFrases = client.keywordsData.respuestas?.feedback?.frases || [];
+  const confPalabras = client.keywordsData.respuestas?.confirmacion?.palabras || [];
+  const confFrases = client.keywordsData.respuestas?.confirmacion?.frases || [];
+  const fbRespPalabras = client.keywordsData.respuestas?.retroalimentacionRespuesta?.palabras || [];
+  const fbRespFrases = client.keywordsData.respuestas?.retroalimentacionRespuesta?.frases || [];
+  const fbPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
+  const fbFrases = client.keywordsData.respuestas?.feedback?.frases || [];
   
-  if (confirmacionPalabras.includes(normalizedText)) {
-    return "confirmacion";
+  if (confPalabras.includes(normalizedText)) return "confirmacion";
+  for (let frase of confFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) return "confirmacion";
   }
-  for (let frase of confirmacionFrases) {
-    if (normalizedText.includes(frase.toLowerCase())) {
-      return "confirmacion";
-    }
+  for (let palabra of fbRespPalabras) {
+    if (normalizedText.includes(palabra.toLowerCase())) return "feedbackrespuesta";
   }
-  for (let palabra of feedbackPalabras) {
-    if (normalizedText.includes(palabra.toLowerCase())) {
-      return "feedback";
-    }
+  for (let frase of fbRespFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) return "feedbackrespuesta";
   }
-  for (let frase of feedbackFrases) {
-    if (normalizedText.includes(frase.toLowerCase())) {
-      return "feedback";
-    }
+  for (let palabra of fbPalabras) {
+    if (normalizedText.includes(palabra.toLowerCase())) return "feedback";
+  }
+  for (let frase of fbFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) return "feedback";
   }
   return "none";
 }
 
 /**
- * processFeedbackResponse - Procesa la respuesta de feedback.
- * Si la respuesta es de confirmación (por ejemplo, "listo" o "ok"), se actualiza la incidencia a "completada"
- * y se genera un mensaje final con fecha, hora y tiempo activo.
- * Si es feedback (por ejemplo, "avance" o "estado"), se agrega el feedback al historial
- * y se notifica a los grupos involucrados para que envíen su retroalimentación personal.
+ * processFeedbackResponse - Procesa la respuesta de retroalimentación.
+ * - Si la respuesta es de confirmación ("confirmacion"), se actualiza la incidencia a "completada"
+ *   y se genera un mensaje final con fechas y tiempo activo.
+ * - Si la respuesta es de feedback (ya sea "feedback" o "feedbackrespuesta"),
+ *   se agrega el feedback al historial en la BD y se devuelve un mensaje confirmando el registro.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback recibido.
@@ -127,7 +129,6 @@ async function processFeedbackResponse(client, message, incidence) {
   const responseType = detectResponseType(client, responseText);
   
   if (responseType === "confirmacion") {
-    // Actualizar estado a "completada"
     return new Promise((resolve, reject) => {
       incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
         if (err) return reject(err);
@@ -141,8 +142,7 @@ async function processFeedbackResponse(client, message, incidence) {
         resolve(finalMsg);
       });
     });
-  } else if (responseType === "feedback") {
-    // Registrar el feedback en el historial
+  } else if (responseType === "feedback" || responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: responseText,
@@ -151,9 +151,7 @@ async function processFeedbackResponse(client, message, incidence) {
     return new Promise((resolve, reject) => {
       incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, async (err) => {
         if (err) return reject(err);
-        // Notificar a los grupos involucrados para que envíen su feedback personal
-        await sendFeedbackRequestToGroups(client, incidence);
-        resolve("Su retroalimentación ha sido registrada y los equipos han sido notificados.");
+        resolve("Su retroalimentación ha sido registrada.");
       });
     });
   } else {
@@ -163,13 +161,13 @@ async function processFeedbackResponse(client, message, incidence) {
 
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * al identificador (ya sea numérico o el originalMsgId) y construye un mensaje de confirmación.
+ * al identificador (numérico o originalMsgId) y construye un mensaje de retroalimentación.
  *
  * Si la incidencia tiene estado "completada", se devuelve un mensaje final con fechas y tiempo activo;
  * de lo contrario, se devuelve la información básica de la incidencia.
  *
  * @param {string} identifier - El identificador extraído.
- * @returns {Promise<string|null>} - El mensaje de confirmación o null.
+ * @returns {Promise<string|null>} - El mensaje de retroalimentación o null.
  */
 async function getFeedbackConfirmationMessage(identifier) {
   let incidence;
