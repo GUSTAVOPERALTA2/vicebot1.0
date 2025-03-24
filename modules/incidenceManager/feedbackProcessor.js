@@ -1,5 +1,6 @@
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment');
+const { sendFeedbackRequestToGroups } = require('./feedbackNotifier');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
@@ -74,8 +75,8 @@ async function extractFeedbackIdentifier(quotedMessage) {
 }
 
 /**
- * detectResponseType - Determina el tipo de respuesta del feedback a partir del texto.
- * Se compara el texto con palabras/frases definidas para confirmación y feedback.
+ * detectResponseType - Determina el tipo de respuesta (confirmación o feedback) 
+ * a partir del texto recibido, comparándolo con las palabras y frases definidas en el JSON.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
@@ -111,9 +112,10 @@ function detectResponseType(client, text) {
 
 /**
  * processFeedbackResponse - Procesa la respuesta de feedback.
- * Si la respuesta es de confirmación (ej. "listo"), se actualiza el estado a "completada"
+ * Si la respuesta es de confirmación (por ejemplo, "listo" o "ok"), se actualiza la incidencia a "completada"
  * y se genera un mensaje final con fecha, hora y tiempo activo.
- * Si es feedback (ej. "avance"), se registra el feedback en el historial y se genera un mensaje parcial.
+ * Si es feedback (por ejemplo, "avance" o "estado"), se agrega el feedback al historial
+ * y se notifica a los grupos involucrados para que envíen su retroalimentación personal.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback recibido.
@@ -140,17 +142,18 @@ async function processFeedbackResponse(client, message, incidence) {
       });
     });
   } else if (responseType === "feedback") {
-    // Crear un registro de feedback
+    // Registrar el feedback en el historial
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: responseText,
       fecha: new Date().toISOString()
     };
     return new Promise((resolve, reject) => {
-      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, async (err) => {
         if (err) return reject(err);
-        const partialMsg = `Feedback registrado para la incidencia ${incidence.id}.\nComentario: ${responseText}`;
-        resolve(partialMsg);
+        // Notificar a los grupos involucrados para que envíen su feedback personal
+        await sendFeedbackRequestToGroups(client, incidence);
+        resolve("Su retroalimentación ha sido registrada y los equipos han sido notificados.");
       });
     });
   } else {
@@ -171,7 +174,6 @@ async function processFeedbackResponse(client, message, incidence) {
 async function getFeedbackConfirmationMessage(identifier) {
   let incidence;
   if (/^\d+$/.test(identifier)) {
-    // Es numérico: buscar por id.
     incidence = await new Promise((resolve, reject) => {
       incidenceDB.getIncidenciaById(identifier, (err, row) => {
         if (err) return reject(err);
@@ -179,7 +181,6 @@ async function getFeedbackConfirmationMessage(identifier) {
       });
     });
   } else {
-    // Buscar por originalMsgId.
     incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
   }
   if (!incidence) {
@@ -206,5 +207,5 @@ module.exports = {
   extractFeedbackIdentifier, 
   detectResponseType,
   processFeedbackResponse,
-  getFeedbackConfirmationMessage 
+  getFeedbackConfirmationMessage
 };
