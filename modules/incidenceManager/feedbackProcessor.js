@@ -57,7 +57,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles:
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -67,7 +66,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // En otro caso, se utiliza la metadata (originalMsgId) del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -80,38 +78,64 @@ async function extractFeedbackIdentifier(quotedMessage) {
 /**
  * detectResponseType - Determina el tipo de respuesta a partir del texto.
  * Se revisan:
- *  - "confirmacion": respuestas que indican confirmación final (ej. "listo", "ok")
- *  - "feedbackrespuesta": respuestas de retroalimentación del equipo (ej. "estamos trabajando en eso", "en proceso", "trabajando", "casi")
+ *  - "confirmacion": respuestas que indican confirmación final (ej. "ok", "listo")
+ *  - "retroFeedback": respuestas específicas a la solicitud de retroalimentación (ej. "respuesta retro", "retroalimentacion recibida")
+ *  - "feedbackrespuesta": respuestas de feedback genérico (ej. "avance", "estado", "progreso")
+ * 
+ * Además, si no se detectan palabras explícitas, se utiliza una heurística basada en la cantidad de palabras:
+ *   - Si el mensaje tiene 3 palabras o menos, se asume confirmación.
+ *   - De lo contrario, se asume feedback.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
- * @returns {string} - "confirmacion", "feedbackrespuesta" o "none".
+ * @returns {string} - "confirmacion", "retroFeedback", "feedbackrespuesta" o "none".
  */
 function detectResponseType(client, text) {
   const normalizedText = text.trim().toLowerCase();
+  const words = normalizedText.split(/\s+/);
+  const wordCount = words.length;
+
+  // Verificar confirmación explícita
   const confPalabras = client.keywordsData.respuestas?.confirmacion?.palabras || [];
   const confFrases = client.keywordsData.respuestas?.confirmacion?.frases || [];
-  const fbRespPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
-  const fbRespFrases = client.keywordsData.respuestas?.feedback?.frases || [];
-  
-  if (confPalabras.includes(normalizedText)) return "confirmacion";
+  for (let palabra of confPalabras) {
+    if (normalizedText.includes(palabra.toLowerCase())) return "confirmacion";
+  }
   for (let frase of confFrases) {
     if (normalizedText.includes(frase.toLowerCase())) return "confirmacion";
   }
+
+  // Verificar respuesta específica a la solicitud de feedback (retroFeedback)
+  const retroFBPalabras = client.keywordsData.respuestas?.retroFeedback?.palabras || [];
+  const retroFBFrases = client.keywordsData.respuestas?.retroFeedback?.frases || [];
+  for (let palabra of retroFBPalabras) {
+    if (normalizedText.includes(palabra.toLowerCase())) return "retroFeedback";
+  }
+  for (let frase of retroFBFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) return "retroFeedback";
+  }
+
+  // Verificar feedback genérico
+  const fbRespPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
+  const fbRespFrases = client.keywordsData.respuestas?.feedback?.frases || [];
   for (let palabra of fbRespPalabras) {
     if (normalizedText.includes(palabra.toLowerCase())) return "feedbackrespuesta";
   }
   for (let frase of fbRespFrases) {
     if (normalizedText.includes(frase.toLowerCase())) return "feedbackrespuesta";
   }
-  return "none";
+  
+  // Heurística: si no se detectan palabras explícitas
+  if (wordCount <= 3) {
+    return "confirmacion";
+  } else {
+    return "feedbackrespuesta";
+  }
 }
 
 /**
  * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
- * (Esta función se utiliza cuando el solicitante responde directamente, no en el grupo destino).
- * Si la respuesta es de confirmación, se actualiza la incidencia a "completada" y se genera un mensaje final.
- * Si es feedback, se registra en el historial.
+ * (Para respuestas directas, no en grupos destino)
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback recibido.
@@ -136,7 +160,7 @@ async function processFeedbackResponse(client, message, incidence) {
         resolve(finalMsg);
       });
     });
-  } else if (responseType === "feedbackrespuesta") {
+  } else if (responseType === "feedbackrespuesta" || responseType === "retroFeedback") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: responseText,
@@ -158,13 +182,13 @@ async function processFeedbackResponse(client, message, incidence) {
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo).
  *
- * Lógica modificada:
+ * Lógica:
  * 1. Verifica que el mensaje citado corresponda a una solicitud de retroalimentación.
- * 2. Extrae el ID numérico de la incidencia.
- * 3. Consulta la incidencia en la BD.
- * 4. Utiliza detectResponseType para identificar si la respuesta contiene palabras de confirmación.
- *    - Si es confirmación: actualiza el estado a "completada" y envía el mensaje final de cierre.
- *    - Si no: guarda el mensaje como feedback en el historial.
+ * 2. Extrae el ID de la incidencia del mensaje citado.
+ * 3. Recupera la incidencia de la BD.
+ * 4. Usa detectResponseType (con heurística) para determinar el tipo de respuesta:
+ *    - Si es "confirmacion", actualiza el estado a "completada" y envía el mensaje final.
+ *    - Si es "feedbackrespuesta" o "retroFeedback", guarda el mensaje en el historial.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback enviado en el grupo destino.
@@ -179,13 +203,11 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  // Verificar que el mensaje citado contenga la frase esperada.
-  if (!quotedText.includes("retroalimentacion solicitada para:")) {
+  if (!quotedText.toLowerCase().includes("retroalimentacion solicitada para:")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Extraer el ID numérico usando "ID: {id}".
   const regex = /ID:\s*(\d+)/i;
   const match = quotedText.match(regex);
   if (!match) {
@@ -195,7 +217,6 @@ async function processTeamFeedbackResponse(client, message) {
   const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
   
-  // Consultar la incidencia en la BD.
   let incidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
       if (err) return reject(err);
@@ -207,7 +228,6 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
-  // Determinar el equipo a partir del id del chat.
   function determineTeamFromGroup(message) {
     if (message && message._data && message._data.chatId) {
       const chatId = message._data.chatId;
@@ -221,12 +241,10 @@ async function processTeamFeedbackResponse(client, message) {
   }
   const team = determineTeamFromGroup(message);
 
-  // Detectar el tipo de respuesta utilizando las palabras de confirmación.
   const responseType = detectResponseType(client, message.body);
   console.log("Tipo de respuesta detectada:", responseType);
 
   if (responseType === "confirmacion") {
-    // Rama de confirmación: actualizar incidencia a completada y enviar mensaje final.
     await new Promise((resolve, reject) => {
       incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
         if (err) return reject(err);
@@ -235,8 +253,7 @@ async function processTeamFeedbackResponse(client, message) {
     });
     await enviarConfirmacionGlobal(client, incidence, incidence.id, team);
     return "Incidencia completada.";
-  } else {
-    // Rama de feedback: guardar el mensaje en el historial de feedback.
+  } else if (responseType === "feedbackrespuesta" || responseType === "retroFeedback") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
@@ -253,15 +270,13 @@ async function processTeamFeedbackResponse(client, message) {
         resolve("Feedback del equipo registrado correctamente.");
       });
     });
+  } else {
+    return "No se reconoció un tipo de respuesta válido.";
   }
 }
 
 /**
- * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * al identificador (numérico o originalMsgId) y construye un mensaje de retroalimentación.
- *
- * Si la incidencia tiene estado "completada", se devuelve un mensaje final con fechas y tiempo activo;
- * de lo contrario, se devuelve la información básica de la incidencia.
+ * getFeedbackConfirmationMessage - Construye un mensaje de retroalimentación basado en la incidencia.
  *
  * @param {string} identifier - El identificador extraído.
  * @returns {Promise<string|null>} - El mensaje de retroalimentación o null.
@@ -306,4 +321,4 @@ module.exports = {
   getFeedbackConfirmationMessage
 };
 
-//Nuevo codigo
+//heuristica
