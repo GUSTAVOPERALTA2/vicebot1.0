@@ -1,6 +1,8 @@
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment');
 const config = require('../../config/config');
+// Se añade la importación de la función que envía el mensaje final de confirmación.
+const { enviarConfirmacionGlobal } = require('./confirmationProcessor');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
@@ -133,7 +135,7 @@ async function processFeedbackResponse(client, message, incidence) {
         resolve(finalMsg);
       });
     });
-  } else if (responseType === "feedback") {
+  } else if (responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: responseText,
@@ -155,13 +157,13 @@ async function processFeedbackResponse(client, message, incidence) {
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo).
  *
- * Lógica:
- * 1. Verifica que el mensaje citado (la solicitud) contenga la frase "Se solicita retroalimentacion para la tarea:".
- * 2. Extrae el ID numérico del mensaje citado (usando el patrón "ID: {id}").
- * 3. Consulta la incidencia en la BD usando ese ID.
- * 4. Crea un registro de feedback que incluya usuario, comentario, fecha y el equipo (determinado a partir del grupo).
- * 5. Guarda el registro en el historial de feedback de la incidencia.
- * 6. Registra en el log que se ha guardado la respuesta.
+ * Lógica modificada:
+ * 1. Verifica que el mensaje citado corresponda a una solicitud de retroalimentación.
+ * 2. Extrae el ID numérico de la incidencia.
+ * 3. Consulta la incidencia en la BD.
+ * 4. Utiliza detectResponseType para identificar si la respuesta contiene palabras de confirmación.
+ *    - Si es confirmación: actualiza el estado a "completada" y envía el mensaje final de cierre.
+ *    - Si no: guarda el mensaje como feedback en el historial.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback enviado en el grupo destino.
@@ -217,26 +219,40 @@ async function processTeamFeedbackResponse(client, message) {
     return "desconocido";
   }
   const team = determineTeamFromGroup(message);
-  
-  // Crear el registro de feedback.
-  const feedbackRecord = {
-    usuario: message.author || message.from,
-    comentario: message.body,
-    fecha: new Date().toISOString(),
-    equipo: team
-  };
-  
-  // Guardar el registro en el historial de feedback en la BD.
-  return new Promise((resolve, reject) => {
-    incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
-      if (err) {
-        console.error("Error al registrar el feedback:", err);
-        return reject("Error al registrar el feedback.");
-      }
-      console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
-      resolve("Feedback del equipo registrado correctamente.");
+
+  // Detectar el tipo de respuesta utilizando las palabras de confirmación.
+  const responseType = detectResponseType(client, message.body);
+  console.log("Tipo de respuesta detectada:", responseType);
+
+  if (responseType === "confirmacion") {
+    // Rama de confirmación: actualizar incidencia a completada y enviar mensaje final.
+    await new Promise((resolve, reject) => {
+      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
     });
-  });
+    await enviarConfirmacionGlobal(client, incidence, incidence.id, team);
+    return "Incidencia completada.";
+  } else {
+    // Rama de feedback: guardar el mensaje en el historial de feedback.
+    const feedbackRecord = {
+      usuario: message.author || message.from,
+      comentario: message.body,
+      fecha: new Date().toISOString(),
+      equipo: team
+    };
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+        if (err) {
+          console.error("Error al registrar el feedback:", err);
+          return reject("Error al registrar el feedback.");
+        }
+        console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
+        resolve("Feedback del equipo registrado correctamente.");
+      });
+    });
+  }
 }
 
 /**
