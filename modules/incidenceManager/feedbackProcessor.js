@@ -1,7 +1,8 @@
+// vicebot/modules/incidenceManager/feedbackProcessor.js
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment');
 const config = require('../../config/config');
-// Se añade la importación de la función que envía el mensaje final de confirmación.
+// Se importa la función que envía el mensaje final de confirmación.
 const { enviarConfirmacionGlobal } = require('./confirmationProcessor');
 
 /**
@@ -179,7 +180,7 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedText = quotedMessage.body;
   
   // Verificar que el mensaje citado contenga la frase esperada.
-  if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
+  if (!quotedText.includes("retroalimentacion solicitada para:")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
