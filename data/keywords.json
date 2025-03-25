@@ -40,33 +40,6 @@
       ]
     }
   },
-  "confirmacion": {
-    "frases": [
-      "confirmo",
-      "realizado",
-      "terminado",
-      "completado"
-    ],
-    "palabras": [
-      "ok",
-      "listo",
-      "fin",
-      "terminado"
-    ]
-  },
-  "retroalimentacion": {
-    "frases": [
-      "¿cómo va",
-      "¿qué tal va",
-      "actualización",
-      "avance de la incidencia"
-    ],
-    "palabras": [
-      "estado",
-      "avance",
-      "actualización"
-    ]
-  },
   "respuestas": {
     "confirmacion": {
       "frases": [
@@ -83,12 +56,16 @@
       "frases": [
         "avance",
         "estado",
-        "progreso"
+        "progreso",
+        "actualización",
+        "¿cómo va",
+        "¿qué tal va"
       ],
       "palabras": [
         "avance",
         "estado",
-        "progreso"
+        "progreso",
+        "actualización"
       ]
     }
   }
