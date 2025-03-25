@@ -31,3 +31,4 @@ async function handleIncidence(client, message) {
 }
 
 module.exports = { handleIncidence };
+//Nuevo
