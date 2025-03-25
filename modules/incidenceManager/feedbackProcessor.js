@@ -54,7 +54,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si es un mensaje de detalles generado por /tareaDetalles, extraer el ID numérico.
+  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles:
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -64,7 +64,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // En otro caso, utilizar la metadata (originalMsgId) del mensaje citado.
+  // En otro caso, se utiliza la metadata (originalMsgId) del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -105,16 +105,63 @@ function detectResponseType(client, text) {
 }
 
 /**
+ * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
+ * (Esta función se utiliza cuando el solicitante responde directamente, no en el grupo destino).
+ * Si la respuesta es de confirmación, se actualiza la incidencia a "completada" y se genera un mensaje final.
+ * Si es feedback, se registra en el historial.
+ *
+ * @param {Object} client - El cliente de WhatsApp.
+ * @param {Object} message - El mensaje de feedback recibido.
+ * @param {Object} incidence - La incidencia correspondiente.
+ * @returns {Promise<string>} - Mensaje resultante para enviar al solicitante.
+ */
+async function processFeedbackResponse(client, message, incidence) {
+  const responseText = message.body;
+  const responseType = detectResponseType(client, responseText);
+  
+  if (responseType === "confirmacion") {
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
+        if (err) return reject(err);
+        const creationTime = moment(incidence.fechaCreacion);
+        const completionTime = moment();
+        const duration = moment.duration(completionTime.diff(creationTime));
+        const days = Math.floor(duration.asDays());
+        const hours = duration.hours();
+        const minutes = duration.minutes();
+        const finalMsg = `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+        resolve(finalMsg);
+      });
+    });
+  } else if (responseType === "feedback") {
+    const feedbackRecord = {
+      usuario: message.author || message.from,
+      comentario: responseText,
+      fecha: new Date().toISOString(),
+      equipo: "solicitante"
+    };
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+        if (err) return reject(err);
+        resolve("Su retroalimentación ha sido registrada.");
+      });
+    });
+  } else {
+    return "No se reconoció un tipo de respuesta válido.";
+  }
+}
+
+/**
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo).
  *
  * Lógica:
- * 1. Verifica que el mensaje citado (de solicitud) contenga la frase "Se solicita retroalimentacion para la tarea:".
- * 2. Extrae el ID numérico de la incidencia del mensaje citado (usando el patrón "ID: {id}").
+ * 1. Verifica que el mensaje citado (la solicitud) contenga la frase "Se solicita retroalimentacion para la tarea:".
+ * 2. Extrae el ID numérico del mensaje citado (usando el patrón "ID: {id}").
  * 3. Consulta la incidencia en la BD usando ese ID.
  * 4. Crea un registro de feedback que incluya usuario, comentario, fecha y el equipo (determinado a partir del grupo).
  * 5. Guarda el registro en el historial de feedback de la incidencia.
- * 6. Loggea que se ha guardado la respuesta.
+ * 6. Registra en el log que se ha guardado la respuesta.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback enviado en el grupo destino.
@@ -129,7 +176,7 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  // Verificar que el mensaje citado contenga la frase indicativa.
+  // Verificar que el mensaje citado contenga la frase esperada.
   if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
