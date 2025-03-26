@@ -2,8 +2,44 @@
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment');
 const config = require('../../config/config');
-// Se importa la función que envía el mensaje final de confirmación.
-const { enviarConfirmacionGlobal } = require('./confirmationProcessor');
+
+/**
+ * Función para calcular la distancia de Levenshtein entre dos cadenas.
+ */
+function levenshteinDistance(a, b) {
+  const matrix = [];
+  let i, j;
+  for (i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (i = 1; i <= b.length; i++) {
+    for (j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // sustitución
+          matrix[i][j - 1] + 1,     // inserción
+          matrix[i - 1][j] + 1      // eliminación
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Función simple de fuzzy matching basada en la distancia de Levenshtein.
+ * Retorna un valor entre 0 y 1, donde 1 indica una coincidencia exacta.
+ */
+function simpleFuzzyMatch(s1, s2) {
+  const distance = levenshteinDistance(s1, s2);
+  const maxLen = Math.max(s1.length, s2.length);
+  return maxLen === 0 ? 1 : 1 - distance / maxLen;
+}
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
@@ -57,7 +93,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles:
+  // Si es un mensaje de detalles generado por /tareaDetalles:
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -67,7 +103,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // En otro caso, se utiliza la metadata (originalMsgId) del mensaje citado.
+  // Caso contrario, se utiliza la metadata del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -79,44 +115,80 @@ async function extractFeedbackIdentifier(quotedMessage) {
 
 /**
  * detectResponseType - Determina el tipo de respuesta a partir del texto.
- * Se revisan:
- *  - "confirmacion": respuestas que indican confirmación final (ej. "listo", "ok")
- *  - "feedbackrespuesta": respuestas de retroalimentación del equipo (ej. "estamos trabajando en eso", "en proceso", "trabajando", "casi")
+ * Se combinan fuzzy matching, análisis de longitud y se retorna "ambiguous"
+ * si la respuesta es poco clara.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
- * @returns {string} - "confirmacion", "feedbackrespuesta" o "none".
+ * @returns {string} - "confirmacion", "feedbackrespuesta" o "ambiguous".
  */
 function detectResponseType(client, text) {
   const normalizedText = text.trim().toLowerCase();
+  const wordCount = normalizedText.split(/\s+/).length;
+  const threshold = 0.7; // umbral para fuzzy matching
+  
   const confPalabras = client.keywordsData.respuestas?.confirmacion?.palabras || [];
   const confFrases = client.keywordsData.respuestas?.confirmacion?.frases || [];
-  const fbRespPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
-  const fbRespFrases = client.keywordsData.respuestas?.feedback?.frases || [];
+  const fbPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
+  const fbFrases = client.keywordsData.respuestas?.feedback?.frases || [];
   
-  if (confPalabras.includes(normalizedText)) return "confirmacion";
-  for (let frase of confFrases) {
-    if (normalizedText.includes(frase.toLowerCase())) return "confirmacion";
+  let confirmationScore = 0;
+  let feedbackScore = 0;
+  
+  // Bonus para mensajes cortos (más propensos a ser confirmación)
+  if (wordCount <= 3) {
+    confirmationScore += 0.2;
   }
-  for (let palabra of fbRespPalabras) {
-    if (normalizedText.includes(palabra.toLowerCase())) return "feedbackrespuesta";
+  
+  // Comparación exacta
+  if (confPalabras.includes(normalizedText)) confirmationScore += 1;
+  confFrases.forEach(phrase => {
+    if (normalizedText.includes(phrase.toLowerCase())) {
+      confirmationScore += 1;
+    }
+  });
+  if (fbPalabras.includes(normalizedText)) feedbackScore += 1;
+  fbFrases.forEach(phrase => {
+    if (normalizedText.includes(phrase.toLowerCase())) {
+      feedbackScore += 1;
+    }
+  });
+  
+  // Fuzzy matching
+  confPalabras.forEach(word => {
+    const sim = simpleFuzzyMatch(normalizedText, word.toLowerCase());
+    if (sim >= threshold) confirmationScore += 0.8;
+  });
+  confFrases.forEach(phrase => {
+    const sim = simpleFuzzyMatch(normalizedText, phrase.toLowerCase());
+    if (sim >= threshold) confirmationScore += 0.8;
+  });
+  fbPalabras.forEach(word => {
+    const sim = simpleFuzzyMatch(normalizedText, word.toLowerCase());
+    if (sim >= threshold) feedbackScore += 0.8;
+  });
+  fbFrases.forEach(phrase => {
+    const sim = simpleFuzzyMatch(normalizedText, phrase.toLowerCase());
+    if (sim >= threshold) feedbackScore += 0.8;
+  });
+  
+  console.log("confirmationScore:", confirmationScore, "feedbackScore:", feedbackScore);
+  
+  // Si la diferencia es pequeña, se considera ambigua
+  if (Math.abs(confirmationScore - feedbackScore) < 0.5) {
+    return "ambiguous";
   }
-  for (let frase of fbRespFrases) {
-    if (normalizedText.includes(frase.toLowerCase())) return "feedbackrespuesta";
-  }
-  return "none";
+  return confirmationScore > feedbackScore ? "confirmacion" : "feedbackrespuesta";
 }
 
 /**
  * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
- * (Esta función se utiliza cuando el solicitante responde directamente, no en el grupo destino).
- * Si la respuesta es de confirmación, se actualiza la incidencia a "completada" y se genera un mensaje final.
- * Si es feedback, se registra en el historial.
+ * (Para respuestas directas del solicitante, no del grupo destino).
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback recibido.
  * @param {Object} incidence - La incidencia correspondiente.
- * @returns {Promise<string>} - Mensaje resultante para enviar al solicitante.
+ * @returns {Promise<string>} - Mensaje resultante.
  */
 async function processFeedbackResponse(client, message, incidence) {
   const responseText = message.body;
@@ -155,16 +227,9 @@ async function processFeedbackResponse(client, message, incidence) {
 }
 
 /**
- * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
- * en los grupos destino (por el equipo).
- *
- * Lógica modificada:
- * 1. Verifica que el mensaje citado corresponda a una solicitud de retroalimentación.
- * 2. Extrae el ID numérico de la incidencia.
- * 3. Consulta la incidencia en la BD.
- * 4. Utiliza detectResponseType para identificar si la respuesta contiene palabras de confirmación.
- *    - Si es confirmación: actualiza el estado a "completada" y envía el mensaje final de cierre.
- *    - Si no: guarda el mensaje como feedback en el historial.
+ * processTeamFeedbackResponse - Procesa la respuesta enviada en los grupos destino.
+ * Diferencia entre confirmación y feedback utilizando la nueva estrategia.
+ * En caso de ambigüedad, solicita aclaración al usuario.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback enviado en el grupo destino.
@@ -179,13 +244,13 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  // Verificar que el mensaje citado contenga la frase esperada.
-  if (!quotedText.includes("retroalimentacion solicitada para:")) {
+  // Verificar que el mensaje citado sea una solicitud de retroalimentación
+  if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Extraer el ID numérico usando "ID: {id}".
+  // Extraer el ID numérico de la incidencia
   const regex = /ID:\s*(\d+)/i;
   const match = quotedText.match(regex);
   if (!match) {
@@ -195,7 +260,7 @@ async function processTeamFeedbackResponse(client, message) {
   const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
   
-  // Consultar la incidencia en la BD.
+  // Consultar la incidencia en la BD
   let incidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
       if (err) return reject(err);
@@ -207,7 +272,7 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
-  // Determinar el equipo a partir del id del chat.
+  // Determinar el equipo a partir del ID del chat destino
   function determineTeamFromGroup(message) {
     if (message && message._data && message._data.chatId) {
       const chatId = message._data.chatId;
@@ -220,23 +285,27 @@ async function processTeamFeedbackResponse(client, message) {
     return "desconocido";
   }
   const team = determineTeamFromGroup(message);
-
-  // Detectar el tipo de respuesta utilizando las palabras de confirmación.
+  
+  // Determinar el tipo de respuesta usando la nueva estrategia
   const responseType = detectResponseType(client, message.body);
-  console.log("Tipo de respuesta detectada:", responseType);
-
+  console.log("Tipo de respuesta detectado:", responseType);
+  
+  if (responseType === "ambiguous") {
+    return "No se pudo determinar si tu respuesta es confirmación o feedback. Por favor, responde indicando explícitamente 'confirmacion' o 'feedback'.";
+  }
+  
   if (responseType === "confirmacion") {
-    // Rama de confirmación: actualizar incidencia a completada y enviar mensaje final.
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
-        if (err) return reject(err);
-        resolve();
+        if (err) {
+          console.error("Error al actualizar la incidencia:", err);
+          return reject("Error al actualizar la incidencia.");
+        }
+        await quotedMessage.reply(`La incidencia (ID: ${incidence.id}) ha sido marcada como COMPLETADA.`);
+        resolve(`Incidencia ${incidence.id} marcada como COMPLETADA.`);
       });
     });
-    await enviarConfirmacionGlobal(client, incidence, incidence.id, team);
-    return "Incidencia completada.";
-  } else {
-    // Rama de feedback: guardar el mensaje en el historial de feedback.
+  } else if (responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
@@ -253,6 +322,8 @@ async function processTeamFeedbackResponse(client, message) {
         resolve("Feedback del equipo registrado correctamente.");
       });
     });
+  } else {
+    return "No se reconoció un tipo de respuesta válido.";
   }
 }
 
@@ -290,8 +361,7 @@ async function getFeedbackConfirmationMessage(identifier) {
     const days = Math.floor(duration.asDays());
     const hours = duration.hours();
     const minutes = duration.minutes();
-    const durationStr = `${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
-    return `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${durationStr}`;
+    return `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
   } else {
     return `RETROALIMENTACION SOLICITADA PARA:\n${incidence.descripcion}\nID: ${incidence.id}\nCategoría: ${incidence.categoria}`;
   }
@@ -306,4 +376,4 @@ module.exports = {
   getFeedbackConfirmationMessage
 };
 
-//incidence
+//nuevo processor
