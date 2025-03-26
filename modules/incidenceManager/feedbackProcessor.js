@@ -367,13 +367,87 @@ async function getFeedbackConfirmationMessage(identifier) {
   }
 }
 
+/**
+ * handleFeedbackRequestFromOrigin - Procesa la solicitud de retroalimentación en el grupo ORIGEN.
+ * Si en el grupo ORIGEN se responde a una incidencia original con palabras o frases definidas en 
+ * la sección "solicitudFeedback", se reenviará la solicitud de retroalimentación a los grupos destino.
+ *
+ * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
+ * @param {Object} message - El mensaje recibido en el grupo ORIGEN.
+ */
+async function handleFeedbackRequestFromOrigin(client, message) {
+  // Verificar que el mensaje cita otro (la incidencia original)
+  if (!message.hasQuotedMsg) {
+    console.log("El mensaje no cita ningún mensaje, no se procesa feedback.");
+    return;
+  }
+  
+  const responseText = message.body.toLowerCase();
+  const solicitudFeedbackPhrases = client.keywordsData.solicitudFeedback?.frases || [];
+  const solicitudFeedbackWords = client.keywordsData.solicitudFeedback?.palabras || [];
+  
+  let foundIndicator = false;
+  for (let phrase of solicitudFeedbackPhrases) {
+    if (responseText.includes(phrase.toLowerCase())) {
+      foundIndicator = true;
+      break;
+    }
+  }
+  if (!foundIndicator) {
+    const responseWords = new Set(responseText.split(/\s+/));
+    for (let word of solicitudFeedbackWords) {
+      if (responseWords.has(word.toLowerCase())) {
+        foundIndicator = true;
+        break;
+      }
+    }
+  }
+  
+  if (!foundIndicator) {
+    console.log("El mensaje no contiene indicadores para solicitud de feedback.");
+    return;
+  }
+  
+  // Obtener el mensaje citado (la incidencia original)
+  const quotedMessage = await message.getQuotedMessage();
+  // Extraer el ID de la incidencia asumiendo el patrón "ID: <número>"
+  const regex = /ID:\s*(\d+)/i;
+  const match = quotedMessage.body.match(regex);
+  if (!match) {
+    console.log("No se encontró el ID en el mensaje citado.");
+    return;
+  }
+  
+  const incidenceId = match[1];
+  console.log("ID extraído del mensaje citado:", incidenceId);
+  
+  // Consultar la incidencia en la BD
+  let incidence = await new Promise((resolve, reject) => {
+    incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
+      if (err) {
+        console.error("Error al obtener la incidencia:", err);
+        return reject(err);
+      }
+      resolve(row);
+    });
+  });
+  
+  if (!incidence) {
+    console.log("No se encontró la incidencia con ID:", incidenceId);
+    return;
+  }
+  
+  // Enviar la solicitud de retroalimentación a los grupos destino
+  await require('./feedbackNotifier').sendFeedbackRequestToGroups(client, incidence);
+  console.log("Solicitud de retroalimentación reenviada desde el grupo ORIGEN.");
+}
+
 module.exports = { 
   detectFeedbackRequest, 
   extractFeedbackIdentifier, 
   detectResponseType,
   processFeedbackResponse,
   processTeamFeedbackResponse,
-  getFeedbackConfirmationMessage
+  getFeedbackConfirmationMessage,
+  handleFeedbackRequestFromOrigin
 };
-
-//nuevo processor

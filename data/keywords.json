@@ -40,33 +40,28 @@
       ]
     }
   },
-  "respuestas": {
-    "confirmacion": {
-      "frases": [
-        "confirmo",
-        "listo",
-        "finalizado"
-      ],
-      "palabras": [
-        "listo",
-        "ok"
-      ]
-    },
-    "feedback": {
-      "frases": [
-        "avance",
-        "estado",
-        "progreso",
-        "actualización",
-        "¿cómo va",
-        "¿qué tal va"
-      ],
-      "palabras": [
-        "avance",
-        "estado",
-        "progreso",
-        "actualización"
-      ]
-    }
+  "solicitudFeedback": {
+    "frases": [
+      "¿cómo va",
+      "¿qué tal va",
+      "actualización",
+      "avance de la incidencia",
+      "como vamos"
+    ],
+    "palabras": [
+      "estado",
+      "avance",
+      "actualización"
+    ]
+  },
+  "respuestasFeedback": {
+    "frases": [
+      "progreso",
+      "en proceso",
+      "trabajando"
+    ],
+    "palabras": [
+      "progreso"
+    ]
   }
 }
