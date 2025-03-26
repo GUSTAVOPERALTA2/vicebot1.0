@@ -51,9 +51,7 @@ function simpleFuzzyMatch(s1, s2) {
 function normalizeText(text) {
   return text
     .toLowerCase()
-    // Quitar acentos
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    // Eliminar signos de puntuación
     .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡"]/g, "")
     .trim();
 }
@@ -110,7 +108,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si es un mensaje de detalles generado por /tareaDetalles:
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -120,7 +117,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // Caso contrario, se utiliza la metadata del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -132,38 +128,24 @@ async function extractFeedbackIdentifier(quotedMessage) {
 
 /**
  * detectResponseType - Determina el tipo de respuesta a partir del texto.
- * Se combinan fuzzy matching, análisis de longitud y se retorna "ambiguous"
- * si la respuesta es poco clara.
+ * Para el procesamiento en los grupos destino se evalúa únicamente con las
+ * palabras y frases definidas en la sección "respuestasFeedback" del JSON.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
- * @returns {string} - "confirmacion", "feedbackrespuesta" o "ambiguous".
+ * @returns {string} - "feedbackrespuesta" o "ambiguous".
  */
 function detectResponseType(client, text) {
   const normalizedText = normalizeText(text);
   const wordCount = normalizedText.split(/\s+/).length;
   const threshold = 0.7; // umbral para fuzzy matching
   
-  const confPalabras = client.keywordsData.respuestas?.confirmacion?.palabras || [];
-  const confFrases = client.keywordsData.respuestas?.confirmacion?.frases || [];
-  const fbPalabras = client.keywordsData.respuestas?.feedback?.palabras || [];
-  const fbFrases = client.keywordsData.respuestas?.feedback?.frases || [];
+  const fbPalabras = client.keywordsData.respuestasFeedback?.palabras || [];
+  const fbFrases = client.keywordsData.respuestasFeedback?.frases || [];
   
-  let confirmationScore = 0;
   let feedbackScore = 0;
   
-  // Bonus para mensajes cortos (más propensos a ser confirmación)
-  if (wordCount <= 3) {
-    confirmationScore += 0.2;
-  }
-  
   // Comparación exacta
-  if (confPalabras.includes(normalizedText)) confirmationScore += 1;
-  confFrases.forEach(phrase => {
-    if (normalizedText.includes(normalizeText(phrase))) {
-      confirmationScore += 1;
-    }
-  });
   if (fbPalabras.includes(normalizedText)) feedbackScore += 1;
   fbFrases.forEach(phrase => {
     if (normalizedText.includes(normalizeText(phrase))) {
@@ -172,14 +154,6 @@ function detectResponseType(client, text) {
   });
   
   // Fuzzy matching
-  confPalabras.forEach(word => {
-    const sim = simpleFuzzyMatch(normalizedText, normalizeText(word));
-    if (sim >= threshold) confirmationScore += 0.8;
-  });
-  confFrases.forEach(phrase => {
-    const sim = simpleFuzzyMatch(normalizedText, normalizeText(phrase));
-    if (sim >= threshold) confirmationScore += 0.8;
-  });
   fbPalabras.forEach(word => {
     const sim = simpleFuzzyMatch(normalizedText, normalizeText(word));
     if (sim >= threshold) feedbackScore += 0.8;
@@ -189,13 +163,13 @@ function detectResponseType(client, text) {
     if (sim >= threshold) feedbackScore += 0.8;
   });
   
-  console.log("confirmationScore:", confirmationScore, "feedbackScore:", feedbackScore);
+  console.log("feedbackScore:", feedbackScore);
   
-  // Si la diferencia es pequeña, se considera ambigua
-  if (Math.abs(confirmationScore - feedbackScore) < 0.5) {
+  if (feedbackScore >= 1) {
+    return "feedbackrespuesta";
+  } else {
     return "ambiguous";
   }
-  return confirmationScore > feedbackScore ? "confirmacion" : "feedbackrespuesta";
 }
 
 /**
@@ -211,21 +185,7 @@ async function processFeedbackResponse(client, message, incidence) {
   const responseText = message.body;
   const responseType = detectResponseType(client, responseText);
   
-  if (responseType === "confirmacion") {
-    return new Promise((resolve, reject) => {
-      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
-        if (err) return reject(err);
-        const creationTime = moment(incidence.fechaCreacion);
-        const completionTime = moment();
-        const duration = moment.duration(completionTime.diff(creationTime));
-        const days = Math.floor(duration.asDays());
-        const hours = duration.hours();
-        const minutes = duration.minutes();
-        const finalMsg = `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
-        resolve(finalMsg);
-      });
-    });
-  } else if (responseType === "feedbackrespuesta") {
+  if (responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
@@ -239,13 +199,13 @@ async function processFeedbackResponse(client, message, incidence) {
       });
     });
   } else {
-    return "No se reconoció un tipo de respuesta válido.";
+    return "No se reconoció un tipo de respuesta válida.";
   }
 }
 
 /**
  * processTeamFeedbackResponse - Procesa la respuesta enviada en los grupos destino.
- * Diferencia entre confirmación y feedback utilizando la nueva estrategia.
+ * Utiliza la nueva estrategia de detección (con normalizeText y respuestasFeedback).
  * En caso de ambigüedad, solicita aclaración al usuario.
  *
  * @param {Object} client - El cliente de WhatsApp.
@@ -261,13 +221,11 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  // Verificar que el mensaje citado sea una solicitud de retroalimentación
   if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Extraer el ID numérico de la incidencia
   const regex = /ID:\s*(\d+)/i;
   const match = quotedText.match(regex);
   if (!match) {
@@ -277,7 +235,6 @@ async function processTeamFeedbackResponse(client, message) {
   const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
   
-  // Consultar la incidencia en la BD
   let incidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
       if (err) return reject(err);
@@ -289,7 +246,6 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
-  // Determinar el equipo a partir del ID del chat destino
   function determineTeamFromGroup(message) {
     if (message && message._data && message._data.chatId) {
       const chatId = message._data.chatId;
@@ -303,26 +259,12 @@ async function processTeamFeedbackResponse(client, message) {
   }
   const team = determineTeamFromGroup(message);
   
-  // Determinar el tipo de respuesta usando la nueva estrategia
-  const responseType = detectResponseType(client, message.body);
-  console.log("Tipo de respuesta detectado:", responseType);
+  const responseTypeDetected = detectResponseType(client, message.body);
+  console.log("Tipo de respuesta detectado:", responseTypeDetected);
   
-  if (responseType === "ambiguous") {
-    return "No se pudo determinar si tu respuesta es confirmación o feedback. Por favor, responde indicando explícitamente 'confirmacion' o 'feedback'.";
-  }
-  
-  if (responseType === "confirmacion") {
-    return new Promise((resolve, reject) => {
-      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
-        if (err) {
-          console.error("Error al actualizar la incidencia:", err);
-          return reject("Error al actualizar la incidencia.");
-        }
-        await quotedMessage.reply(`La incidencia (ID: ${incidence.id}) ha sido marcada como COMPLETADA.`);
-        resolve(`Incidencia ${incidence.id} marcada como COMPLETADA.`);
-      });
-    });
-  } else if (responseType === "feedbackrespuesta") {
+  if (responseTypeDetected === "ambiguous") {
+    return "No se pudo determinar si tu respuesta es feedback. Por favor, responde indicando explícitamente tu comentario.";
+  } else if (responseTypeDetected === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
@@ -393,7 +335,6 @@ async function getFeedbackConfirmationMessage(identifier) {
  * @param {Object} message - El mensaje recibido en el grupo ORIGEN.
  */
 async function handleFeedbackRequestFromOrigin(client, message) {
-  // Verificar que el mensaje cita otro (la incidencia original)
   if (!message.hasQuotedMsg) {
     console.log("El mensaje no cita ningún mensaje, no se procesa feedback.");
     return;
@@ -425,9 +366,7 @@ async function handleFeedbackRequestFromOrigin(client, message) {
     return;
   }
   
-  // Obtener el mensaje citado (la incidencia original)
   const quotedMessage = await message.getQuotedMessage();
-  // Extraer el ID de la incidencia asumiendo el patrón "ID: <número>"
   const regex = /ID:\s*(\d+)/i;
   const match = quotedMessage.body.match(regex);
   if (!match) {
@@ -438,7 +377,6 @@ async function handleFeedbackRequestFromOrigin(client, message) {
   const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
   
-  // Consultar la incidencia en la BD
   let incidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
       if (err) {
@@ -454,7 +392,6 @@ async function handleFeedbackRequestFromOrigin(client, message) {
     return;
   }
   
-  // Enviar la solicitud de retroalimentación a los grupos destino
   await require('./feedbackNotifier').sendFeedbackRequestToGroups(client, incidence);
   console.log("Solicitud de retroalimentación reenviada desde el grupo ORIGEN.");
 }
@@ -469,4 +406,4 @@ module.exports = {
   handleFeedbackRequestFromOrigin
 };
 
-//nuevo
+//otra
