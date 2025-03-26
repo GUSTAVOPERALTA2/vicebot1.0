@@ -124,8 +124,8 @@ async function extractFeedbackIdentifier(quotedMessage) {
 }
 
 /**
- * detectResponseType - Para respuestas en grupos destino, se evalúa únicamente
- * contra las palabras y frases definidas en la sección "respuestasFeedback".
+ * detectResponseType - Para respuestas en grupos destino se evalúa únicamente
+ * contra las palabras y frases definidas en la sección "respuestasFeedback" del JSON.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
@@ -317,7 +317,7 @@ async function getFeedbackConfirmationMessage(identifier) {
 
 /**
  * handleFeedbackRequestFromOrigin - Procesa la solicitud de retroalimentación en el grupo ORIGEN.
- * Ahora se utiliza la categoría "retro" para detectar los indicadores.
+ * Se utiliza la nueva categoría "retro" para detectar los indicadores.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {Object} message - El mensaje recibido en el grupo ORIGEN.
@@ -329,7 +329,6 @@ async function handleFeedbackRequestFromOrigin(client, message) {
   }
   
   const responseText = normalizeText(message.body);
-  // Utilizamos la nueva categoría "retro" para indicadores
   const retroPhrases = client.keywordsData.retro?.frases || [];
   const retroWords = client.keywordsData.retro?.palabras || [];
   
@@ -392,7 +391,6 @@ module.exports = {
   processFeedbackResponse,
   processTeamFeedbackResponse,
   getFeedbackConfirmationMessage,
-  handleFeedbackRequestFromOrigin
+  handleFeedbackRequestFromOrigin,
+  normalizeText
 };
-
-//nuevo
