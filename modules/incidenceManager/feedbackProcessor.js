@@ -43,7 +43,6 @@ function simpleFuzzyMatch(s1, s2) {
 
 /**
  * normalizeText - Convierte el texto a minúsculas, quita acentos y elimina signos de puntuación.
- * Esto facilita la comparación entre las palabras definidas en el JSON y el texto recibido.
  *
  * @param {string} text - El texto a normalizar.
  * @returns {string} - El texto normalizado.
@@ -61,7 +60,7 @@ function normalizeText(text) {
  * contiene palabras o frases indicativas de solicitar retroalimentación.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
- * @param {Object} message - El mensaje de respuesta que cita otro mensaje.
+ * @param {Object} message - El mensaje que cita otro mensaje.
  * @returns {Promise<boolean>} - True si se detecta retroalimentación; false en caso contrario.
  */
 async function detectFeedbackRequest(client, message) {
@@ -98,8 +97,6 @@ async function detectFeedbackRequest(client, message) {
 
 /**
  * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
- * Si el mensaje citado proviene del comando /tareaDetalles (contiene "Detalles de la incidencia"),
- * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
  *
  * @param {Object} quotedMessage - El mensaje citado.
  * @returns {Promise<string|null>} - El identificador extraído o null.
@@ -127,9 +124,8 @@ async function extractFeedbackIdentifier(quotedMessage) {
 }
 
 /**
- * detectResponseType - Determina el tipo de respuesta a partir del texto.
- * Para el procesamiento en los grupos destino se evalúa únicamente con las
- * palabras y frases definidas en la sección "respuestasFeedback" del JSON.
+ * detectResponseType - Para respuestas en grupos destino, se evalúa únicamente
+ * contra las palabras y frases definidas en la sección "respuestasFeedback".
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {string} text - El texto de la respuesta.
@@ -137,7 +133,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
  */
 function detectResponseType(client, text) {
   const normalizedText = normalizeText(text);
-  const wordCount = normalizedText.split(/\s+/).length;
   const threshold = 0.7; // umbral para fuzzy matching
   
   const fbPalabras = client.keywordsData.respuestasFeedback?.palabras || [];
@@ -174,7 +169,6 @@ function detectResponseType(client, text) {
 
 /**
  * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
- * (Para respuestas directas del solicitante, no del grupo destino).
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback recibido.
@@ -205,8 +199,6 @@ async function processFeedbackResponse(client, message, incidence) {
 
 /**
  * processTeamFeedbackResponse - Procesa la respuesta enviada en los grupos destino.
- * Utiliza la nueva estrategia de detección (con normalizeText y respuestasFeedback).
- * En caso de ambigüedad, solicita aclaración al usuario.
  *
  * @param {Object} client - El cliente de WhatsApp.
  * @param {Object} message - El mensaje de feedback enviado en el grupo destino.
@@ -288,10 +280,7 @@ async function processTeamFeedbackResponse(client, message) {
 
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * al identificador (numérico o originalMsgId) y construye un mensaje de retroalimentación.
- *
- * Si la incidencia tiene estado "completada", se devuelve un mensaje final con fechas y tiempo activo;
- * de lo contrario, se devuelve la información básica de la incidencia.
+ * al identificador y construye un mensaje de retroalimentación.
  *
  * @param {string} identifier - El identificador extraído.
  * @returns {Promise<string|null>} - El mensaje de retroalimentación o null.
@@ -328,8 +317,7 @@ async function getFeedbackConfirmationMessage(identifier) {
 
 /**
  * handleFeedbackRequestFromOrigin - Procesa la solicitud de retroalimentación en el grupo ORIGEN.
- * Si en el grupo ORIGEN se responde a una incidencia original con palabras o frases definidas en 
- * la sección "solicitudFeedback", se reenviará la solicitud de retroalimentación a los grupos destino.
+ * Ahora se utiliza la categoría "retro" para detectar los indicadores.
  *
  * @param {Object} client - El cliente de WhatsApp (con client.keywordsData).
  * @param {Object} message - El mensaje recibido en el grupo ORIGEN.
@@ -341,11 +329,12 @@ async function handleFeedbackRequestFromOrigin(client, message) {
   }
   
   const responseText = normalizeText(message.body);
-  const solicitudFeedbackPhrases = client.keywordsData.solicitudFeedback?.frases || [];
-  const solicitudFeedbackWords = client.keywordsData.solicitudFeedback?.palabras || [];
+  // Utilizamos la nueva categoría "retro" para indicadores
+  const retroPhrases = client.keywordsData.retro?.frases || [];
+  const retroWords = client.keywordsData.retro?.palabras || [];
   
   let foundIndicator = false;
-  for (let phrase of solicitudFeedbackPhrases) {
+  for (let phrase of retroPhrases) {
     if (responseText.includes(normalizeText(phrase))) {
       foundIndicator = true;
       break;
@@ -353,7 +342,7 @@ async function handleFeedbackRequestFromOrigin(client, message) {
   }
   if (!foundIndicator) {
     const responseWords = new Set(responseText.split(/\s+/));
-    for (let word of solicitudFeedbackWords) {
+    for (let word of retroWords) {
       if (responseWords.has(normalizeText(word))) {
         foundIndicator = true;
         break;
@@ -406,4 +395,4 @@ module.exports = {
   handleFeedbackRequestFromOrigin
 };
 
-//otra
+//nuevo
