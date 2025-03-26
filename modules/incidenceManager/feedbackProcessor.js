@@ -42,6 +42,23 @@ function simpleFuzzyMatch(s1, s2) {
 }
 
 /**
+ * normalizeText - Convierte el texto a minúsculas, quita acentos y elimina signos de puntuación.
+ * Esto facilita la comparación entre las palabras definidas en el JSON y el texto recibido.
+ *
+ * @param {string} text - El texto a normalizar.
+ * @returns {string} - El texto normalizado.
+ */
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    // Quitar acentos
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    // Eliminar signos de puntuación
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()¿?¡"]/g, "")
+    .trim();
+}
+
+/**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
  * contiene palabras o frases indicativas de solicitar retroalimentación.
  *
@@ -55,13 +72,13 @@ async function detectFeedbackRequest(client, message) {
     return false;
   }
   
-  const responseText = message.body.toLowerCase();
+  const responseText = normalizeText(message.body);
   const feedbackWords = client.keywordsData.retroalimentacion?.palabras || [];
   const feedbackPhrases = client.keywordsData.retroalimentacion?.frases || [];
   
   let feedbackDetected = false;
   for (let phrase of feedbackPhrases) {
-    if (responseText.includes(phrase.toLowerCase())) {
+    if (responseText.includes(normalizeText(phrase))) {
       feedbackDetected = true;
       break;
     }
@@ -69,7 +86,7 @@ async function detectFeedbackRequest(client, message) {
   if (!feedbackDetected) {
     const responseWords = new Set(responseText.split(/\s+/));
     for (let word of feedbackWords) {
-      if (responseWords.has(word.toLowerCase())) {
+      if (responseWords.has(normalizeText(word))) {
         feedbackDetected = true;
         break;
       }
@@ -123,7 +140,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
  * @returns {string} - "confirmacion", "feedbackrespuesta" o "ambiguous".
  */
 function detectResponseType(client, text) {
-  const normalizedText = text.trim().toLowerCase();
+  const normalizedText = normalizeText(text);
   const wordCount = normalizedText.split(/\s+/).length;
   const threshold = 0.7; // umbral para fuzzy matching
   
@@ -143,32 +160,32 @@ function detectResponseType(client, text) {
   // Comparación exacta
   if (confPalabras.includes(normalizedText)) confirmationScore += 1;
   confFrases.forEach(phrase => {
-    if (normalizedText.includes(phrase.toLowerCase())) {
+    if (normalizedText.includes(normalizeText(phrase))) {
       confirmationScore += 1;
     }
   });
   if (fbPalabras.includes(normalizedText)) feedbackScore += 1;
   fbFrases.forEach(phrase => {
-    if (normalizedText.includes(phrase.toLowerCase())) {
+    if (normalizedText.includes(normalizeText(phrase))) {
       feedbackScore += 1;
     }
   });
   
   // Fuzzy matching
   confPalabras.forEach(word => {
-    const sim = simpleFuzzyMatch(normalizedText, word.toLowerCase());
+    const sim = simpleFuzzyMatch(normalizedText, normalizeText(word));
     if (sim >= threshold) confirmationScore += 0.8;
   });
   confFrases.forEach(phrase => {
-    const sim = simpleFuzzyMatch(normalizedText, phrase.toLowerCase());
+    const sim = simpleFuzzyMatch(normalizedText, normalizeText(phrase));
     if (sim >= threshold) confirmationScore += 0.8;
   });
   fbPalabras.forEach(word => {
-    const sim = simpleFuzzyMatch(normalizedText, word.toLowerCase());
+    const sim = simpleFuzzyMatch(normalizedText, normalizeText(word));
     if (sim >= threshold) feedbackScore += 0.8;
   });
   fbFrases.forEach(phrase => {
-    const sim = simpleFuzzyMatch(normalizedText, phrase.toLowerCase());
+    const sim = simpleFuzzyMatch(normalizedText, normalizeText(phrase));
     if (sim >= threshold) feedbackScore += 0.8;
   });
   
@@ -211,7 +228,7 @@ async function processFeedbackResponse(client, message, incidence) {
   } else if (responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
-      comentario: responseText,
+      comentario: message.body,
       fecha: new Date().toISOString(),
       equipo: "solicitante"
     };
@@ -382,13 +399,13 @@ async function handleFeedbackRequestFromOrigin(client, message) {
     return;
   }
   
-  const responseText = message.body.toLowerCase();
+  const responseText = normalizeText(message.body);
   const solicitudFeedbackPhrases = client.keywordsData.solicitudFeedback?.frases || [];
   const solicitudFeedbackWords = client.keywordsData.solicitudFeedback?.palabras || [];
   
   let foundIndicator = false;
   for (let phrase of solicitudFeedbackPhrases) {
-    if (responseText.includes(phrase.toLowerCase())) {
+    if (responseText.includes(normalizeText(phrase))) {
       foundIndicator = true;
       break;
     }
@@ -396,7 +413,7 @@ async function handleFeedbackRequestFromOrigin(client, message) {
   if (!foundIndicator) {
     const responseWords = new Set(responseText.split(/\s+/));
     for (let word of solicitudFeedbackWords) {
-      if (responseWords.has(word.toLowerCase())) {
+      if (responseWords.has(normalizeText(word))) {
         foundIndicator = true;
         break;
       }
@@ -451,3 +468,5 @@ module.exports = {
   getFeedbackConfirmationMessage,
   handleFeedbackRequestFromOrigin
 };
+
+//nuevo
