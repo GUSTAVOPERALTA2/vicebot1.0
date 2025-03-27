@@ -13,7 +13,7 @@ async function detectFeedbackRequest(client, message) {
   }
   
   const responseText = message.body.toLowerCase();
-  // En este caso se usan las keywords de retroalimentación (si se requiriera)
+  // Se usan las keywords de retroalimentación definidas en la categoría "retro"
   const feedbackWords = client.keywordsData.retro?.palabras || [];
   const feedbackPhrases = client.keywordsData.retro?.frases || [];
   
@@ -42,7 +42,7 @@ async function detectFeedbackRequest(client, message) {
 /**
  * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
  * Si el mensaje citado proviene del comando /tareaDetalles (contiene "Detalles de la incidencia"),
- * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
+ * se intenta extraer el id numérico mediante regex; si no se logra, se utiliza el campo originalMsgId (metadata).
  */
 async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
@@ -51,14 +51,14 @@ async function extractFeedbackIdentifier(quotedMessage) {
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
-    if (match) {
+    if (match && match[1]) {
       console.log("Identificador numérico encontrado en mensaje de detalles:", match[1]);
       return match[1];
     }
   }
   
   if (quotedMessage.id && quotedMessage.id._serialized) {
-    console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
+    console.log("No se pudo extraer el ID del texto. Usando el campo originalMsgId:", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
   }
   
@@ -230,7 +230,6 @@ async function processTeamRetroFeedbackResponse(client, message) {
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Extraer el ID usando el formato: *SOLICITUD DE RETROALIMENTACION PARA LA TAREA {ID}:*
   const regex = /\*SOLICITUD DE RETROALIMENTACION PARA LA TAREA (\d+):\*/i;
   const match = quotedText.match(regex);
   if (!match) {
@@ -256,31 +255,33 @@ async function processTeamRetroFeedbackResponse(client, message) {
       const chatId = message._data.chatId;
       for (const [key, groupId] of Object.entries(config.destinoGrupos)) {
         if (groupId === chatId) {
-          return key;
+          return key; // "it", "man", "ama"
         }
       }
     }
     return "desconocido";
   }
-  const team = determineTeamFromGroup(message);
+  let team = determineTeamFromGroup(message);
+  const categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
+  const primaryCategory = categories[0];
+  if (team === "desconocido") {
+    team = primaryCategory;
+  }
   
   const responseText = message.body.toLowerCase();
   const responseType = detectResponseType(client, responseText);
   
   if (responseType === "confirmacion") {
-    // Se marca la incidencia como completada y se envía el mensaje final de confirmación.
     return new Promise((resolve, reject) => {
       incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
         if (err) return reject("Error al actualizar la incidencia.");
         await quotedMessage.reply(`La incidencia (ID: ${incidence.id}) ha sido marcada como COMPLETADA.`);
-        // Se utiliza la función enviarConfirmacionGlobal del módulo confirmationProcessor.
         const { enviarConfirmacionGlobal } = require('./confirmationProcessor');
         await enviarConfirmacionGlobal(client, incidence, incidence.id, team);
         resolve(`La incidencia ${incidence.id} se ha marcado como COMPLETADA.`);
       });
     });
   } else {
-    // Se guarda el comentario en el historial y se reenvía un mensaje al grupo principal.
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
@@ -301,11 +302,43 @@ async function processTeamRetroFeedbackResponse(client, message) {
   }
 }
 
+/**
+ * isRetroRequest - Verifica si el mensaje actual es una solicitud de retroalimentación.
+ * Requisitos:
+ *  1. El mensaje debe citar otro mensaje.
+ *  2. El mensaje citado debe permitir obtener un identificador de incidencia.
+ *  3. El mensaje actual debe contener al menos una palabra o frase de la categoría "retro".
+ *
+ * @param {Object} client - El cliente de WhatsApp con las keywords cargadas.
+ * @param {Object} message - El mensaje recibido.
+ * @returns {Promise<boolean>} - true si se cumplen todas las condiciones, false en caso contrario.
+ */
+async function isRetroRequest(client, message) {
+  if (!message.hasQuotedMsg) {
+    return false;
+  }
+  
+  const quotedMessage = await message.getQuotedMessage();
+  const identifier = await extractFeedbackIdentifier(quotedMessage);
+  if (!identifier) {
+    return false;
+  }
+  
+  const messageText = message.body.toLowerCase();
+  const retroData = client.keywordsData.retro; // Estructura: { palabras: [...], frases: [...] }
+  const containsKeyword = retroData.palabras.some(word => messageText.includes(word.toLowerCase()));
+  const containsPhrase = retroData.frases.some(phrase => messageText.includes(phrase.toLowerCase()));
+  
+  return containsKeyword || containsPhrase;
+}
+
 module.exports = { 
   detectFeedbackRequest, 
   extractFeedbackIdentifier, 
   detectResponseType,
   processFeedbackResponse,
   processTeamFeedbackResponse,
-  processTeamRetroFeedbackResponse
+  processTeamRetroFeedbackResponse,
+  isRetroRequest
 };
+
