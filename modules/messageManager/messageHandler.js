@@ -1,75 +1,32 @@
-// modules/messageManager/messageHandler.js
 const { handleCommands } = require('./commandsHandler');
 const { handleIncidence } = require('../../modules/incidenceManager/incidenceHandler');
-const {
-  detectFeedbackRequest,
-  extractFeedbackIdentifier,
-  getFeedbackConfirmationMessage,
-  processFeedbackResponse,
-  processTeamFeedbackResponse
+const { 
+  detectRetroRequest,
+  processRetroRequest
 } = require('../../modules/incidenceManager/feedbackProcessor');
-const { sendFeedbackRequestToGroups } = require('../../modules/incidenceManager/feedbackNotifier');
 const incidenceDB = require('../../modules/incidenceManager/incidenceDB');
 
 async function handleMessage(client, message) {
   try {
     const chat = await message.getChat();
 
-    // --- Feedback por mensaje citado ---
+    // Si el mensaje cita otro, verificamos si es una solicitud de retroalimentación (categoría "retro")
     if (message.hasQuotedMsg) {
-      const isFeedbackRequest = await detectFeedbackRequest(client, message);
-      if (isFeedbackRequest) {
-        const quotedMessage = await message.getQuotedMessage();
-        const identifier = await extractFeedbackIdentifier(quotedMessage);
-
-        if (!identifier) {
-          await chat.sendMessage("No se pudo extraer el identificador de la incidencia citada.");
-          return;
-        }
-
-        let incidence;
-        if (/^\d+$/.test(identifier)) {
-          incidence = await new Promise((resolve, reject) => {
-            incidenceDB.getIncidenciaById(identifier, (err, row) => {
-              if (err) return reject(err);
-              resolve(row);
-            });
-          });
-        } else {
-          incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
-        }
-
-        if (incidence) {
-          await sendFeedbackRequestToGroups(client, incidence);
-          const feedbackMsg = await getFeedbackConfirmationMessage(identifier);
-          await chat.sendMessage("Se ha reenviado su solicitud de retroalimentación a los equipos correspondientes.\n" + (feedbackMsg || ""));
-        } else {
-          await chat.sendMessage("No se encontró información de la incidencia para retroalimentación.");
-        }
-
-        return;
-      }
-
-      // --- Feedback del equipo (respuesta en grupo destino) ---
-      const quotedMessage = await message.getQuotedMessage();
-      const quotedText = quotedMessage.body;
-      if (quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
-        const teamFeedbackResponse = await processTeamFeedbackResponse(client, message);
-        if (teamFeedbackResponse) {
-          await chat.sendMessage(teamFeedbackResponse);
-          return;
-        }
+      const isRetro = await detectRetroRequest(client, message);
+      if (isRetro) {
+        await processRetroRequest(client, message);
+        return; // Se detiene el procesamiento si se ha manejado la solicitud retro.
       }
     }
 
-    // --- Comandos ---
+    // Si el mensaje inicia con '/' se procesa como comando.
     if (message.body && message.body.trim().startsWith('/')) {
       console.log(`Comando detectado: ${message.body.trim()}`);
       const handled = await handleCommands(client, message);
       if (handled) return;
     }
 
-    // --- Incidencia nueva o confirmación ---
+    // Si no es comando, se procesa como incidencia.
     await handleIncidence(client, message);
   } catch (err) {
     console.error("Error en handleMessage:", err);
@@ -77,5 +34,3 @@ async function handleMessage(client, message) {
 }
 
 module.exports = handleMessage;
-
-//nuevo
