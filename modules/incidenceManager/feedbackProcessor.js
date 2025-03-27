@@ -327,11 +327,13 @@ async function isRetroRequest(client, message) {
   }
   
   const messageText = message.body.toLowerCase();
-  const retroData = client.keywordsData.retro;
-  if (!retroData) {
+  // Usamos un fallback para retroData en caso de que no esté definido.
+  const retroData = client.keywordsData.retro || { palabras: [], frases: [] };
+  if (!retroData.palabras.length && !retroData.frases.length) {
     console.log("No se encontró configuración para la categoría retro.");
     return false;
   }
+  
   const containsKeyword = retroData.palabras.some(word => messageText.includes(word.toLowerCase()));
   const containsPhrase = retroData.frases.some(phrase => messageText.includes(phrase.toLowerCase()));
   
@@ -348,4 +350,4 @@ module.exports = {
   isRetroRequest
 };
 
-//nuevo
+//nuevo fellback
