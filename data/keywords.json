@@ -38,6 +38,18 @@
         "necesita reparación",
         "problema de mantenimiento"
       ]
+    },
+    "retro": {
+      "palabras": [
+        "avance",
+        "progreso",
+        "estado"
+      ],
+      "frases": [
+        "como vamos",
+        "como va",
+        "ya casi"
+      ]
     }
   },
   "respuestas": {
