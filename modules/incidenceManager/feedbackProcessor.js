@@ -315,17 +315,23 @@ async function processTeamRetroFeedbackResponse(client, message) {
  */
 async function isRetroRequest(client, message) {
   if (!message.hasQuotedMsg) {
+    console.log("Mensaje no cita ningún mensaje.");
     return false;
   }
   
   const quotedMessage = await message.getQuotedMessage();
   const identifier = await extractFeedbackIdentifier(quotedMessage);
   if (!identifier) {
+    console.log("No se pudo extraer el identificador de la incidencia del mensaje citado.");
     return false;
   }
   
   const messageText = message.body.toLowerCase();
-  const retroData = client.keywordsData.retro; // Estructura: { palabras: [...], frases: [...] }
+  const retroData = client.keywordsData.retro;
+  if (!retroData) {
+    console.log("No se encontró configuración para la categoría retro.");
+    return false;
+  }
   const containsKeyword = retroData.palabras.some(word => messageText.includes(word.toLowerCase()));
   const containsPhrase = retroData.frases.some(phrase => messageText.includes(phrase.toLowerCase()));
   
@@ -342,3 +348,4 @@ module.exports = {
   isRetroRequest
 };
 
+//nuevo
