@@ -1,6 +1,5 @@
-// vicebot/modules/incidenceManager/confirmationProcessor.js
 const config = require('../../config/config');
-const incidenciasDB = require('./incidenceDB');
+const incidenceDB = require('./incidenceDB');
 const moment = require('moment-timezone');
 
 /**
@@ -37,10 +36,10 @@ async function processConfirmation(client, message) {
   const incidenciaId = idMatch[1] || idMatch[2];
   const responseText = message.body.toLowerCase();
   const responseWords = new Set(responseText.split(/\s+/));
-  const confirmPhraseFound = client.keywordsData.confirmacion.frases.some(phrase =>
+  const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
     responseText.includes(phrase.toLowerCase())
   );
-  const confirmWordFound = client.keywordsData.confirmacion.palabras.some(word =>
+  const confirmWordFound = client.keywordsData.respuestas.confirmacion.palabras.some(word =>
     responseWords.has(word.toLowerCase())
   );
   console.log(`Confirmación detectada: confirmPhraseFound=${confirmPhraseFound}, confirmWordFound=${confirmWordFound}`);
@@ -49,7 +48,7 @@ async function processConfirmation(client, message) {
     return;
   }
   
-  incidenciasDB.getIncidenciaById(incidenciaId, async (err, incidencia) => {
+  incidenceDB.getIncidenciaById(incidenciaId, async (err, incidencia) => {
     if (err || !incidencia) {
       console.error("Error al obtener detalles de la incidencia para confirmación.");
       return;
@@ -66,7 +65,7 @@ async function processConfirmation(client, message) {
     
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
-      incidenciasDB.updateConfirmaciones(incidenciaId, JSON.stringify(incidencia.confirmaciones), (err) => {
+      incidenceDB.updateConfirmaciones(incidenciaId, JSON.stringify(incidencia.confirmaciones), (err) => {
         if (err) {
           console.error("Error al actualizar confirmaciones:", err);
         } else {
@@ -100,7 +99,7 @@ async function processConfirmation(client, message) {
               .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
             return;
           } else {
-            incidenciasDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
+            incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
               if (err) {
                 console.error("Error al actualizar la incidencia:", err);
                 return;
@@ -113,7 +112,7 @@ async function processConfirmation(client, message) {
         }
       });
     } else {
-      incidenciasDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
+      incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
         if (err) {
           console.error("Error al actualizar la incidencia:", err);
           return;
