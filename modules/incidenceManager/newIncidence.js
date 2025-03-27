@@ -19,11 +19,13 @@ async function processNewIncidence(client, message) {
   const wordsSet = new Set(cleanedMessage.split(/\s+/));
   console.log("Conjunto de palabras:", wordsSet);
 
+  // Se evalúan solo las categorías válidas para incidencias nuevas
   const categories = ['it', 'ama', 'man'];
   let foundCategories = [];
   const keywordsData = client.keywordsData;
   for (let category of categories) {
     const data = keywordsData.identificadores[category];
+    if (!data) continue;
     const foundKeyword = data.palabras.some(word => wordsSet.has(word.toLowerCase()));
     const foundPhrase = data.frases.some(phrase => messageText.includes(phrase.toLowerCase()));
     console.log(`Evaluando categoría ${category}: foundKeyword=${foundKeyword}, foundPhrase=${foundPhrase}`);
@@ -32,6 +34,8 @@ async function processNewIncidence(client, message) {
     }
   }
   console.log("Categorías detectadas:", foundCategories);
+
+  // Si no se encontró ninguna categoría válida, se omite el mensaje
   if (!foundCategories.length) {
     console.log("No se encontró ninguna categoría en el mensaje.");
     return;
@@ -61,7 +65,7 @@ async function processNewIncidence(client, message) {
     }
   }
   
-  // Generar un identificador único (aunque en este caso no se muestra, se puede usar para otros fines)
+  // Generar un identificador único
   const uniqueMessageId = uuidv4();
   // Obtener el id original del mensaje (metadata)
   const originalMsgId = message.id._serialized;
@@ -89,7 +93,6 @@ async function processNewIncidence(client, message) {
       async function forwardMessage(targetGroupId, categoryLabel) {
         try {
           const targetChat = await client.getChatById(targetGroupId);
-          // Se agrega el ID asignado al mensaje reenviado.
           const mensajeConID = `Nueva tarea recibida (ID: ${lastID}):\n\n*${message.body}*`;
           if (mediaData && mediaData.data && mediaData.mimetype) {
             console.log(`Enviando mensaje con media a ${categoryLabel}...`);
@@ -128,4 +131,4 @@ async function processNewIncidence(client, message) {
   });
 }
 
-module.exports = { processNewIncidence };
+module.exports = { processNewIncidencia };
