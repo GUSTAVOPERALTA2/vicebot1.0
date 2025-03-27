@@ -6,29 +6,52 @@ const {
   getFeedbackConfirmationMessage,
   processFeedbackResponse,
   processTeamFeedbackResponse,
-  processTeamRetroFeedbackResponse
+  processTeamRetroFeedbackResponse,
+  isRetroRequest
 } = require('../../modules/incidenceManager/feedbackProcessor');
 const { sendFeedbackRequestToGroups } = require('../../modules/incidenceManager/feedbackNotifier');
 const incidenceDB = require('../../modules/incidenceManager/incidenceDB');
 const config = require('../../config/config');
 
+/**
+ * logIfQuoted - Registra en consola si el mensaje recibido cita a otro y muestra el contenido del mensaje citado.
+ * @param {Object} message - El mensaje recibido.
+ */
+async function logIfQuoted(message) {
+  console.log("Mensaje recibido:", message.body);
+  if (message.hasQuotedMsg) {
+    console.log("Este mensaje ES una respuesta (cita).");
+    try {
+      const quotedMessage = await message.getQuotedMessage();
+      console.log("Mensaje citado:", quotedMessage.body);
+    } catch (error) {
+      console.error("Error al obtener el mensaje citado:", error);
+    }
+  } else {
+    console.log("Este mensaje NO es una respuesta (no tiene cita).");
+  }
+}
+
 async function handleMessage(client, message) {
   try {
+    // Log para identificar si el mensaje cita a otro.
+    await logIfQuoted(message);
+    
     const chat = await message.getChat();
 
-    // Si el mensaje cita otro, se revisa si se trata de una solicitud de retroalimentación
+    // Si el mensaje cita otro, se revisa si se trata de una respuesta de retroalimentación.
     if (message.hasQuotedMsg) {
       const quotedMessage = await message.getQuotedMessage();
       const quotedText = quotedMessage.body;
-      // Si el mensaje citado corresponde a una solicitud de retroalimentación (enviada al grupo destino)
+
+      // Si el mensaje citado corresponde a una solicitud de retroalimentación enviada al grupo destino.
       if (quotedText.includes("SOLICITUD DE RETROALIMENTACION PARA LA TAREA")) {
-        // Procesar la respuesta del equipo a la solicitud de retroalimentación
         const result = await processTeamRetroFeedbackResponse(client, message);
         console.log(result);
-        return; // Se detiene el procesamiento si se ha manejado la respuesta retro
+        return; // Se detiene el procesamiento si se ha manejado la respuesta retro.
       }
       
-      // Caso contrario: si se trata de una solicitud de retroalimentación (por el solicitante)
+      // Caso de solicitud de retroalimentación por parte del solicitante.
       const isFeedback = await detectFeedbackRequest(client, message);
       if (isFeedback) {
         const identifier = await extractFeedbackIdentifier(quotedMessage);
@@ -54,7 +77,7 @@ async function handleMessage(client, message) {
         } else {
           await chat.sendMessage("No se pudo extraer el identificador de la incidencia citada.");
         }
-        return; // Se detiene el procesamiento si se ha manejado la retroalimentación solicitada.
+        return; // Se detiene el procesamiento si se ha manejado la solicitud de retroalimentación.
       }
     }
 
@@ -74,4 +97,4 @@ async function handleMessage(client, message) {
 
 module.exports = handleMessage;
 
-//nuevo
+//cita log
