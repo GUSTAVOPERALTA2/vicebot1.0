@@ -309,4 +309,3 @@ module.exports = {
   processTeamFeedbackResponse,
   processTeamRetroFeedbackResponse
 };
-

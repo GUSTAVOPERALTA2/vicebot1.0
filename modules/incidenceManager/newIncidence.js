@@ -131,4 +131,4 @@ async function processNewIncidence(client, message) {
   });
 }
 
-module.exports = { processNewIncidencia };
+module.exports = { processNewIncidence };
