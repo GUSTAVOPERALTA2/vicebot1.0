@@ -47,7 +47,7 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si se detecta que es un mensaje de detalles generado por /tareaDetalles:
+  // Si es un mensaje de detalles generado por /tareaDetalles:
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -256,7 +256,11 @@ async function detectRetroRequest(client, message) {
 /**
  * processRetroRequest - Procesa la solicitud de retroalimentación para la nueva categoría "retro".
  * Verifica que el mensaje cite una incidencia (original o de /tareaDetalles) y envía
- * un mensaje al grupo destino correspondiente.
+ * un mensaje al grupo destino correspondiente con el siguiente formato:
+ *
+ * *SOLICITUD DE RETROALIMENTACION PARA LA TAREA {id}:*
+ * {tarea original}
+ * Por favor, proporcione sus comentarios
  */
 async function processRetroRequest(client, message) {
   const chat = await message.getChat();
@@ -293,10 +297,14 @@ async function processRetroRequest(client, message) {
     await chat.sendMessage("No se encontró grupo asignado para la incidencia.");
     return;
   }
-  const originalMessageText = quotedMessage.body;
-  const retroResponse = `Solicitud para la incidencia:\n${originalMessageText}\n\nenviada al grupo destino ${groupDest}`;
+  // Construir el mensaje según el formato solicitado.
+  const retroResponse = `*SOLICITUD DE RETROALIMENTACION PARA LA TAREA ${incidence.id}:*\n` +
+                          `${incidence.descripcion}\n` +
+                          `Por favor, proporcione sus comentarios`;
+  // Enviar el mensaje al grupo destino.
   const targetChat = await client.getChatById(groupDest);
   await targetChat.sendMessage(retroResponse);
+  // Confirmar en el chat actual.
   await chat.sendMessage("Solicitud de retroalimentación procesada correctamente.");
 }
 
@@ -310,3 +318,5 @@ module.exports = {
   detectRetroRequest,
   processRetroRequest
 };
+
+//nuevo feed
