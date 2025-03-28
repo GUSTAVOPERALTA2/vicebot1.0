@@ -134,7 +134,7 @@ async function processFeedbackResponse(client, message, incidence) {
 /**
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo).
- * Si se responde con una palabra de confirmación se realiza el proceso de confirmación,
+ * Si la respuesta contiene una palabra de confirmación se realiza el proceso de confirmación,
  * de lo contrario se guarda el feedback en la base de datos y se notifica al grupo principal.
  */
 async function processTeamFeedbackResponse(client, message) {
