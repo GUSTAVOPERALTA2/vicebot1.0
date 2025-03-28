@@ -29,14 +29,12 @@ async function handleMessage(client, message) {
       }
     }
     
-    // Si el mensaje inicia con '/' se procesa como comando.
     if (message.body && message.body.trim().startsWith('/')) {
       console.log(`Comando detectado: ${message.body.trim()}`);
       const handled = await handleCommands(client, message);
       if (handled) return;
     }
     
-    // Si no es comando, se procesa como incidencia.
     await handleIncidence(client, message);
   } catch (err) {
     console.error("Error en handleMessage:", err);
