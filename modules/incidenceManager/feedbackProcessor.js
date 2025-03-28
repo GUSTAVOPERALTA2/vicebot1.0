@@ -314,6 +314,8 @@ async function processTeamRetroFeedbackResponse(client, message) {
  * @returns {Promise<boolean>} - true si se cumplen todas las condiciones, false en caso contrario.
  */
 async function isRetroRequest(client, message) {
+  console.log("Keywords cargadas en isRetroRequest:", client.keywordsData);
+  
   if (!message.hasQuotedMsg) {
     console.log("Mensaje no cita ningún mensaje.");
     return false;
@@ -327,8 +329,9 @@ async function isRetroRequest(client, message) {
   }
   
   const messageText = message.body.toLowerCase();
-  // Usamos un fallback para retroData en caso de que no esté definido.
+  // Se usa retroData; si no existe, se asigna un objeto vacío para evitar errores.
   const retroData = client.keywordsData.retro || { palabras: [], frases: [] };
+  
   if (!retroData.palabras.length && !retroData.frases.length) {
     console.log("No se encontró configuración para la categoría retro.");
     return false;
@@ -337,9 +340,10 @@ async function isRetroRequest(client, message) {
   const containsKeyword = retroData.palabras.some(word => messageText.includes(word.toLowerCase()));
   const containsPhrase = retroData.frases.some(phrase => messageText.includes(phrase.toLowerCase()));
   
+  console.log("isRetroRequest: containsKeyword:", containsKeyword, "containsPhrase:", containsPhrase);
+  
   return containsKeyword || containsPhrase;
 }
-
 module.exports = { 
   detectFeedbackRequest, 
   extractFeedbackIdentifier, 
