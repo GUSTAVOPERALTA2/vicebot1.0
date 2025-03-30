@@ -58,9 +58,10 @@ async function extractFeedbackIdentifier(quotedMessage) {
   }
   
   // Intentar extraer el ID usando el patrón de retroalimentación
-  if (text.toLowerCase().startsWith("solicitud de retroalimentacion para la tarea")) {
-    const regex = /SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i;
-    const match = text.match(regex);
+  let cleanedText = text.trim().replace(/^\*/, "").toLowerCase();
+  if (cleanedText.startsWith("solicitud de retroalimentacion para la tarea")) {
+    const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
+    const match = cleanedText.match(regex);
     if (match) {
       console.log("Identificador extraído del mensaje de retroalimentación:", match[1]);
       return match[1];
@@ -163,8 +164,8 @@ async function determineTeamFromGroup(message) {
 
 /**
  * processTeamFeedbackResponse - Procesa la respuesta enviada en los grupos destino (por el equipo).
- * Si se detecta confirmación, delega la lógica a processConfirmation.
- * En caso de feedback, se registra la respuesta y se envía el siguiente mensaje al grupo principal:
+ * Si se detecta confirmación, delega en processConfirmation.
+ * En caso de feedback, registra la respuesta y envía el siguiente mensaje al grupo principal:
  *
  * RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
  * {incidencia.descripcion}
@@ -173,26 +174,29 @@ async function determineTeamFromGroup(message) {
  * {mensaje de respuesta}
  */
 async function processTeamFeedbackResponse(client, message) {
-  // Primero, detectar el tipo de respuesta
+  // Detectar el tipo de respuesta
   const responseType = detectResponseType(client, message.body);
   if (responseType === "confirmacion") {
     console.log("Respuesta es confirmación, delegando a processConfirmation.");
     return processConfirmation(client, message);
   }
   
-  // Para feedback, continuar el procesamiento
   if (!message.hasQuotedMsg) {
     console.log("El mensaje del equipo no cita ningún mensaje de solicitud.");
     return "El mensaje no cita la solicitud de retroalimentación.";
   }
   const quotedMessage = await message.getQuotedMessage();
-  const quotedText = quotedMessage.body;
-  if (!quotedText.toLowerCase().startsWith("solicitud de retroalimentacion para la tarea")) {
+  
+  // Limpiar el texto citado (quitar asteriscos y espacios iniciales)
+  let cleanedQuotedText = quotedMessage.body.trim().replace(/^\*/, "").toLowerCase();
+  if (!cleanedQuotedText.startsWith("solicitud de retroalimentacion para la tarea")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
-  const regex = /SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i;
-  const match = quotedText.match(regex);
+  
+  // Extraer el ID usando el patrón de retroalimentación
+  const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
+  const match = cleanedQuotedText.match(regex);
   if (!match) {
     console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
     return "No se pudo extraer el ID de la incidencia del mensaje citado.";
@@ -228,7 +232,7 @@ async function processTeamFeedbackResponse(client, message) {
     });
   });
   
-  // Enviar el mensaje de feedback al grupo principal con el formato requerido
+  // Enviar mensaje de feedback al grupo principal con el formato requerido
   const mainGroupChat = await client.getChatById(config.groupPruebaId);
   const feedbackMsg = `RESPUESTA DE RETROALIMENTACION, EQUIPO ${team.toUpperCase()}\n` +
                       `${incidence.descripcion}\n\n` +
@@ -318,7 +322,7 @@ async function processRetroRequest(client, message) {
     await chat.sendMessage("No se encontró la incidencia correspondiente.");
     return;
   }
-  // Enviar solicitud de retro a cada grupo según las categorías de la incidencia
+  // Enviar solicitud a cada grupo según las categorías de la incidencia
   let categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
   let sentToAny = false;
   for (const category of categories) {
@@ -354,3 +358,5 @@ module.exports = {
   detectRetroRequest,
   processRetroRequest
 };
+
+//nuevo feedback
