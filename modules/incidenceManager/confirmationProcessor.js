@@ -238,4 +238,4 @@ function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaCon
 
 module.exports = { processConfirmation };
 
-//ayah
+//ayuda
