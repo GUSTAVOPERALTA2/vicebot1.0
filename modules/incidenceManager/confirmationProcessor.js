@@ -130,10 +130,11 @@ async function processConfirmation(client, message) {
         
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        // Verificar si ya han confirmado todos los equipos
+        // Si aún no han confirmado todos, enviar mensaje parcial;
+        // si todos han confirmado, marcar como completada y enviar mensaje final.
+        const mainGroupChatPromise = client.getChatById(config.groupPruebaId);
         if (confirmedTeams.length < totalTeams) {
-          // Obtener el chat principal usando then/catch para evitar await a nivel de bloque
-          client.getChatById(config.groupPruebaId)
+          mainGroupChatPromise
             .then(mainGroupChat => {
               const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
                 `${incidencia.descripcion}\n\n` +
@@ -177,7 +178,8 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    const record = feedbackHistory.filter(r => r.equipo.toLowerCase() === team).pop();
+    // Verificar que r.equipo exista antes de llamar a toLowerCase()
+    const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
   }
@@ -238,4 +240,4 @@ function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaCon
 
 module.exports = { processConfirmation };
 
-//ayuda
+//revision
