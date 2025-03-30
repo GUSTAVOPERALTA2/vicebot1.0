@@ -24,7 +24,7 @@ async function processConfirmation(client, message) {
   // Limpiar el texto citado para quitar asteriscos y espacios iniciales
   const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
   
-  // Se aceptan mensajes que inicien con alguno de estos patrones:
+  // Se aceptan mensajes que inicien con cualquiera de estos patrones:
   if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
         cleanedQuotedText.startsWith("nueva tarea recibida") ||
         cleanedQuotedText.startsWith("recordatorio: incidencia") ||
@@ -88,11 +88,17 @@ async function processConfirmation(client, message) {
       } else {
         console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
         
-        // Obtener mapeo de nombres y equipos requeridos
+        // Mapear nombres de equipo
         const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+        // Extraer equipos requeridos de la incidencia (se asume que incidencia.categoria es una lista separada por comas)
         const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
-        const confirmedTeams = incidencia.confirmaciones ? 
-          Object.keys(incidencia.confirmaciones).filter(k => incidencia.confirmaciones[k] !== false) : [];
+        // Calcular equipos confirmados: solo se consideran confirmados si el valor es una fecha válida
+        const confirmedTeams = (incidencia.confirmaciones) 
+          ? Object.keys(incidencia.confirmaciones).filter(k => {
+              const ts = incidencia.confirmaciones[k];
+              return ts && !isNaN(Date.parse(ts));
+            })
+          : [];
         const totalTeams = requiredTeams.length;
         const missingTeams = requiredTeams
           .filter(team => !confirmedTeams.includes(team))
@@ -102,22 +108,35 @@ async function processConfirmation(client, message) {
         const diffDuration = moment.duration(responseTime);
         const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
         
-        // Generar bloque de comentarios consultando el campo "comentario" desde feedbackHistory
+        // Consultar el historial para obtener comentarios por equipo
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
-          `${incidencia.descripcion}\n\n` +
-          `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
-          `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
-          `Comentarios:\n${comentarios}\n` +
-          `⏱️Tiempo de respuesta: ${diffResponseStr}`;
-        
-        client.getChatById(config.groupPruebaId)
-          .then(chat => {
-            chat.sendMessage(partialMessage);
-            console.log("Mensaje de confirmación parcial enviado al grupo principal:", partialMessage);
-          })
-          .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
+        // Si todos los equipos han confirmado, no se envía el mensaje parcial; se llama al proceso de finalización
+        if (confirmedTeams.length < totalTeams) {
+          const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
+            `${incidencia.descripcion}\n\n` +
+            `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
+            `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
+            `Comentarios:\n${comentarios}\n` +
+            `⏱️Tiempo de respuesta: ${diffResponseStr}`;
+          client.getChatById(config.groupPruebaId)
+            .then(chat => {
+              chat.sendMessage(partialMessage);
+              console.log("Mensaje de confirmación parcial enviado al grupo principal:", partialMessage);
+            })
+            .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
+        } else {
+          // Cuando todos los equipos han confirmado, se marca la incidencia como completada y se envía el mensaje final.
+          incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
+            if (err) {
+              console.error("Error al actualizar la incidencia:", err);
+              return;
+            }
+            await quotedMessage.reply(`La incidencia (ID: ${incidenciaId}) ha sido marcada como COMPLETADA.`);
+            console.log(`Incidencia ${incidenciaId} actualizada a COMPLETADA en grupo destino.`);
+            enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada);
+          });
+        }
       }
     });
   });
@@ -125,8 +144,8 @@ async function processConfirmation(client, message) {
 
 /**
  * generarComentarios - Consulta el historial de feedback y extrae el campo "comentario" para cada equipo.
- * Para cada equipo requerido, se busca en feedbackHistory el último registro de tipo "feedback".
- * Si no se encuentra, se asigna "Sin comentarios".
+ * Para cada equipo requerido, busca en feedbackHistory el último registro de tipo "feedback".
+ * Si no se encuentra, muestra "Sin comentarios".
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
   let comentarios = "";
@@ -138,8 +157,8 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Buscar el último registro de feedback para este equipo (comparando en minúsculas)
-    const record = feedbackHistory.find(r => r.equipo.toLowerCase() === team && r.comentario);
+    // Buscar el último registro de feedback para el equipo (comparando en minúsculas)
+    const record = feedbackHistory.filter(r => r.equipo.toLowerCase() === team && r.comentario).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
   }
@@ -201,5 +220,3 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
 }
 
 module.exports = { processConfirmation };
-
-//NUEVO MODULO
