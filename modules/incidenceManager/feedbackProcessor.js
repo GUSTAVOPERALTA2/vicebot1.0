@@ -358,8 +358,16 @@ async function processRetroRequest(client, message) {
     await targetChat.sendMessage(retroResponse);
     sentToAny = true;
   }
-  if(sentToAny) {
-    await chat.sendMessage("Solicitud de retroalimentación procesada correctamente.");
+  if (sentToAny) {
+    // Crear una lista de nombres de equipo para mostrar en el mensaje final
+    const displayNamesMapping = {
+      it: "IT",
+      man: "MANTENIMIENTO",
+      ama: "AMA"
+    };
+    const displayNamesArray = categories.map(cat => displayNamesMapping[cat] || cat.toUpperCase());
+    const displayNamesString = displayNamesArray.join(", ");
+    await chat.sendMessage(`Solicitud de retroalimentación para *${displayNamesString}* procesada correctamente. El equipo responderá en breve.`);
   } else {
     await chat.sendMessage("No se encontró grupo asignado para ninguna categoría de la incidencia.");
   }
@@ -376,4 +384,4 @@ module.exports = {
   processRetroRequest
 };
 
-//Nuevo codigo
+//mod mensaje
