@@ -158,7 +158,7 @@ async function determineTeamFromGroup(message) {
  * Siempre guarda el registro en el historial.
  * Si la respuesta es de confirmación, se actualiza la confirmación del equipo correspondiente;
  * si es feedback, se registra el feedback.
- * Además, para incidencias de múltiples categorías, se evalúa si todos los equipos han confirmado.
+ * Además, para incidencias con múltiples categorías, se actualiza la confirmación solo para el equipo que respondió.
  */
 async function processTeamFeedbackResponse(client, message) {
   if (!message.hasQuotedMsg) {
@@ -214,9 +214,7 @@ async function processTeamFeedbackResponse(client, message) {
   });
   
   if (responseType === "confirmacion") {
-    // Para confirmaciones en incidencias con múltiples categorías,
-    // se asume que incidence.categoria contiene las categorías separadas por coma.
-    // Se actualiza la confirmación únicamente para el equipo que respondió.
+    // Actualiza confirmación solo para el equipo que respondió
     let updatedConfirmations = {};
     if (incidence.confirmaciones && typeof incidence.confirmaciones === "object") {
       updatedConfirmations = { ...incidence.confirmaciones, [team]: new Date().toISOString() };
@@ -241,7 +239,6 @@ async function processTeamFeedbackResponse(client, message) {
       await mainGroupChat.sendMessage(partialMsg);
       return "Confirmación parcial procesada.";
     } else {
-      // Si todas han confirmado, marcar la incidencia como completada
       return new Promise((resolve, reject) => {
         incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
           if (err) return reject(err);
@@ -316,11 +313,7 @@ async function detectRetroRequest(client, message) {
 /**
  * processRetroRequest - Procesa la solicitud de retroalimentación para la nueva categoría "retro".
  * Verifica que el mensaje cite una incidencia (original o de /tareaDetalles) y envía
- * un mensaje al grupo destino correspondiente con el siguiente formato:
- *
- * *SOLICITUD DE RETROALIMENTACION PARA LA TAREA {id}:*
- * {tarea original}
- * Por favor, proporcione sus comentarios
+ * un mensaje a cada grupo destino correspondiente, en caso de que la incidencia tenga múltiples categorías.
  */
 async function processRetroRequest(client, message) {
   const chat = await message.getChat();
@@ -349,19 +342,27 @@ async function processRetroRequest(client, message) {
     await chat.sendMessage("No se encontró la incidencia correspondiente.");
     return;
   }
+  // Iterar sobre todas las categorías de la incidencia
   let categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
-  let category = categories[0];
-  const groupDest = config.destinoGrupos[category];
-  if (!groupDest) {
-    await chat.sendMessage("No se encontró grupo asignado para la incidencia.");
-    return;
+  let sentToAny = false;
+  for (const category of categories) {
+    const groupDest = config.destinoGrupos[category];
+    if (!groupDest) {
+      console.warn(`No se encontró grupo asignado para la categoría: ${category}`);
+      continue;
+    }
+    const retroResponse = `*SOLICITUD DE RETROALIMENTACION PARA LA TAREA ${incidence.id}:*\n` +
+                            `${incidence.descripcion}\n` +
+                            `Por favor, proporcione sus comentarios`;
+    const targetChat = await client.getChatById(groupDest);
+    await targetChat.sendMessage(retroResponse);
+    sentToAny = true;
   }
-  const retroResponse = `*SOLICITUD DE RETROALIMENTACION PARA LA TAREA ${incidence.id}:*\n` +
-                          `${incidence.descripcion}\n` +
-                          `Por favor, proporcione sus comentarios`;
-  const targetChat = await client.getChatById(groupDest);
-  await targetChat.sendMessage(retroResponse);
-  await chat.sendMessage("Solicitud de retroalimentación procesada correctamente.");
+  if(sentToAny) {
+    await chat.sendMessage("Solicitud de retroalimentación procesada correctamente.");
+  } else {
+    await chat.sendMessage("No se encontró grupo asignado para ninguna categoría de la incidencia.");
+  }
 }
 
 module.exports = { 
@@ -375,5 +376,4 @@ module.exports = {
   processRetroRequest
 };
 
-
-//logica multiple
+//Nuevo codigo
