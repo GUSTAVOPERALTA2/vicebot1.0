@@ -7,8 +7,8 @@ const moment = require('moment-timezone');
  * Realiza:
  *  - Validación del mensaje citado y extracción del ID de la incidencia.
  *  - Detección de palabras o frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la BD, de forma parcial (por fases) o final.
- *  - Registro del comentario de confirmación en el historial (feedbackHistory).
+ *  - Actualización del objeto incidencia en la BD (confirmaciones) y registro del comentario
+ *    en feedbackHistory.
  *  - Envío de un mensaje parcial o final al grupo principal.
  */
 async function processConfirmation(client, message) {
@@ -76,14 +76,14 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
-    // Actualizar confirmaciones: almacenar la fecha de respuesta para el equipo que confirma
+    // Actualizar confirmaciones para el equipo que confirma
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
     } else {
       incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
     }
     
-    // Registrar en feedbackHistory el comentario de confirmación
+    // Registrar en feedbackHistory el mensaje de confirmación
     let history = [];
     try {
       history = incidencia.feedbackHistory ? JSON.parse(incidencia.feedbackHistory) : [];
@@ -130,17 +130,22 @@ async function processConfirmation(client, message) {
         
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        const mainGroupChat = await client.getChatById(config.groupPruebaId);
+        // Verificar si ya han confirmado todos los equipos
         if (confirmedTeams.length < totalTeams) {
-          const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
-            `${incidencia.descripcion}\n\n` +
-            `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
-            `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
-            `Comentarios:\n${comentarios}\n` +
-            `⏱️Tiempo de respuesta: ${diffResponseStr}`;
-          mainGroupChat.sendMessage(partialMessage)
-            .then(() => console.log("Mensaje de confirmación parcial enviado:", partialMessage))
-            .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
+          // Obtener el chat principal usando then/catch para evitar await a nivel de bloque
+          client.getChatById(config.groupPruebaId)
+            .then(mainGroupChat => {
+              const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
+                `${incidencia.descripcion}\n\n` +
+                `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
+                `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
+                `Comentarios:\n${comentarios}\n` +
+                `⏱️Tiempo de respuesta: ${diffResponseStr}`;
+              mainGroupChat.sendMessage(partialMessage)
+                .then(() => console.log("Mensaje de confirmación parcial enviado:", partialMessage))
+                .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
+            })
+            .catch(e => console.error("Error al obtener el chat principal:", e));
         } else {
           incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
             if (err) {
@@ -159,7 +164,7 @@ async function processConfirmation(client, message) {
 
 /**
  * generarComentarios - Consulta el historial de feedback y extrae el campo "comentario" para cada equipo.
- * Para cada equipo requerido, se busca en feedbackHistory el último registro (ya sea confirmación o feedback).
+ * Para cada equipo requerido, busca en feedbackHistory el último registro (confirmación o feedback).
  * Si no se encuentra, muestra "Sin comentarios".
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
@@ -172,7 +177,6 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Buscar el último registro para este equipo (sin filtrar por tipo)
     const record = feedbackHistory.filter(r => r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
@@ -182,8 +186,9 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
 
 /**
  * enviarConfirmacionGlobal - Envía un mensaje final de confirmación al grupo principal.
+ * Se utiliza then/catch para evitar await a nivel de bloque.
  */
-async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
+function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
   let teamNames = {};
   if (incidencia.categoria) {
     incidencia.categoria.split(',').forEach(cat => {
@@ -225,15 +230,12 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
     `*ID:* ${incidenciaId}\n\n` +
     `*MUCHAS GRACIAS POR SU PACIENCIA* 😊`;
   
-  try {
-    const mainGroupChat = await client.getChatById(config.groupPruebaId);
-    await mainGroupChat.sendMessage(confirmationMessage);
-    console.log(`Confirmación final enviada al grupo principal: ${confirmationMessage}`);
-  } catch (error) {
-    console.error("Error al enviar confirmación al grupo principal:", error);
-  }
+  client.getChatById(config.groupPruebaId)
+    .then(mainGroupChat => mainGroupChat.sendMessage(confirmationMessage))
+    .then(() => console.log(`Confirmación final enviada al grupo principal: ${confirmationMessage}`))
+    .catch(error => console.error("Error al enviar confirmación al grupo principal:", error));
 }
 
 module.exports = { processConfirmation };
 
-//
+//ayah
