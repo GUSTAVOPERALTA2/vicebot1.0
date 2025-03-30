@@ -22,19 +22,26 @@ async function processConfirmation(client, message) {
   }
   const quotedMessage = await message.getQuotedMessage();
   const quotedBodyLower = quotedMessage.body.toLowerCase();
+  // Se acepta el mensaje citado si inicia con alguno de estos patrones:
   if (!(quotedBodyLower.startsWith("*recordatorio: tarea incompleta*") ||
         quotedBodyLower.startsWith("nueva tarea recibida") ||
-        quotedBodyLower.startsWith("*solicitud de retroalimentacion*") ||
-        quotedBodyLower.startsWith("recordatorio: incidencia"))) {
-    console.log("El mensaje citado no corresponde a una tarea enviada o recordatorio. Se ignora.");
+        quotedBodyLower.startsWith("recordatorio: incidencia") ||
+        quotedBodyLower.startsWith("*solicitud de retroalimentacion para la tarea"))) {
+    console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
     return;
   }
-  const idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
+  // Intentar extraer el ID usando el patrón de solicitud de retroalimentación
+  let idMatch = quotedMessage.body.match(/\*?SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s+(\d+):/i);
+  // Si no se encuentra, intentar con el patrón tradicional
+  if (!idMatch) {
+    idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
+  }
   if (!idMatch) {
     console.log("No se encontró el ID en el mensaje citado. No se actualizará el estado.");
     return;
   }
   const incidenciaId = idMatch[1] || idMatch[2];
+  
   const responseText = message.body.toLowerCase();
   const responseWords = new Set(responseText.split(/\s+/));
   const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
@@ -127,7 +134,7 @@ async function processConfirmation(client, message) {
 }
 
 /**
- * Función auxiliar para enviar el mensaje final de confirmación al grupo principal.
+ * enviarConfirmacionGlobal - Envía un mensaje final de confirmación al grupo principal.
  */
 async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
   let teamNames = {};
