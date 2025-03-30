@@ -3,64 +3,6 @@ const moment = require('moment');
 const config = require('../../config/config');
 
 /**
- * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
- * contiene palabras o frases indicativas de solicitar retroalimentación.
- */
-async function detectFeedbackRequest(client, message) {
-  if (!message.hasQuotedMsg) {
-    console.log("El mensaje no cita ningún mensaje.");
-    return false;
-  }
-  const responseText = message.body.toLowerCase();
-  const feedbackWords = client.keywordsData.respuestas.feedback?.palabras || [];
-  const feedbackPhrases = client.keywordsData.respuestas.feedback?.frases || [];
-  let feedbackDetected = false;
-  for (let phrase of feedbackPhrases) {
-    if (responseText.includes(phrase.toLowerCase())) {
-      feedbackDetected = true;
-      break;
-    }
-  }
-  if (!feedbackDetected) {
-    const responseWords = new Set(responseText.split(/\s+/));
-    for (let word of feedbackWords) {
-      if (responseWords.has(word.toLowerCase())) {
-        feedbackDetected = true;
-        break;
-      }
-    }
-  }
-  console.log(feedbackDetected 
-    ? "Retroalimentación detectada en el mensaje de respuesta." 
-    : "No se detectó retroalimentación en el mensaje de respuesta.");
-  return feedbackDetected;
-}
-
-/**
- * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
- * Si el mensaje citado proviene del comando /tareaDetalles (contiene "Detalles de la incidencia"),
- * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
- */
-async function extractFeedbackIdentifier(quotedMessage) {
-  const text = quotedMessage.body;
-  console.log("Texto del mensaje citado:", text);
-  if (text.includes("Detalles de la incidencia")) {
-    const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
-    const match = text.match(regex);
-    if (match) {
-      console.log("Identificador numérico encontrado en mensaje de detalles:", match[1]);
-      return match[1];
-    }
-  }
-  if (quotedMessage.id && quotedMessage.id._serialized) {
-    console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
-    return quotedMessage.id._serialized;
-  }
-  console.log("No se encontró identificador en el mensaje citado.");
-  return null;
-}
-
-/**
  * detectResponseType - Determina el tipo de respuesta a partir del texto.
  */
 function detectResponseType(client, text) {
@@ -74,60 +16,17 @@ function detectResponseType(client, text) {
     if (normalizedText.includes(frase.toLowerCase())) return "confirmacion";
   }
   for (let palabra of fbRespPalabras) {
-    if (normalizedText.includes(palabra.toLowerCase())) return "feedbackrespuesta";
+    if (normalizedText.includes(palabra.toLowerCase())) return "feedback";
   }
   for (let frase of fbRespFrases) {
-    if (normalizedText.includes(frase.toLowerCase())) return "feedbackrespuesta";
+    if (normalizedText.includes(frase.toLowerCase())) return "feedback";
   }
   return "none";
 }
 
 /**
- * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
- * Siempre guarda el registro en el historial, luego:
- * - Si es confirmación, actualiza la incidencia a "completada".
- * - Si es feedback, solo registra el feedback.
- */
-async function processFeedbackResponse(client, message, incidence) {
-  const responseText = message.body;
-  const responseType = detectResponseType(client, responseText);
-  const record = {
-    usuario: message.author || message.from,
-    comentario: responseText,
-    fecha: new Date().toISOString(),
-    equipo: "solicitante",
-    tipo: responseType
-  };
-  await new Promise((resolve, reject) => {
-    incidenceDB.updateFeedbackHistory(incidence.id, record, (err) => {
-      if (err) return reject(err);
-      resolve();
-    });
-  });
-  if (responseType === "confirmacion") {
-    return new Promise((resolve, reject) => {
-      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
-        if (err) return reject(err);
-        const creationTime = moment(incidence.fechaCreacion);
-        const completionTime = moment();
-        const duration = moment.duration(completionTime.diff(creationTime));
-        const days = Math.floor(duration.asDays());
-        const hours = duration.hours();
-        const minutes = duration.minutes();
-        const finalMsg = `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
-        resolve(finalMsg);
-      });
-    });
-  } else if (responseType === "feedbackrespuesta") {
-    return "Su retroalimentación ha sido registrada.";
-  } else {
-    return "No se reconoció un tipo de respuesta válido.";
-  }
-}
-
-/**
  * determineTeamFromGroup - Determina el equipo a partir del grupo de donde se envía el mensaje,
- * usando los identificadores definidos en la configuración.
+ * utilizando los identificadores definidos en la configuración.
  */
 async function determineTeamFromGroup(message) {
   const chat = await message.getChat();
@@ -143,16 +42,16 @@ async function determineTeamFromGroup(message) {
 }
 
 /**
- * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
- * en los grupos destino (por el equipo).
- * Siempre guarda el registro en el historial.
- * Cada equipo puede responder con confirmación o feedback.
- * Luego se envía un mensaje parcial al grupo principal que muestra:
- * - Los equipos que han confirmado.
- * - Los equipos que han enviado feedback (con sus comentarios).
- * - El estado parcial de la tarea.
+ * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada en los grupos destino (por el equipo).
+ * Registra la respuesta (ya sea confirmación o feedback) y actualiza la confirmación solo para el equipo que responde.
+ * Luego, construye un mensaje parcial que muestra:
+ * - Equipos que han confirmado (con su nombre).
+ * - Equipos que han enviado feedback (con sus comentarios).
+ * - Estado parcial: cuántos de los equipos requeridos han respondido.
+ * Cuando todos han confirmado, se marca la incidencia como completada y se envía el mensaje final.
  */
 async function processTeamFeedbackResponse(client, message) {
+  // Validar que se cita un mensaje de solicitud de retroalimentación
   if (!message.hasQuotedMsg) {
     console.log("El mensaje del equipo no cita ningún mensaje de solicitud.");
     return "El mensaje no cita la solicitud de retroalimentación.";
@@ -163,6 +62,7 @@ async function processTeamFeedbackResponse(client, message) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
+  // Extraer el ID de la incidencia desde el mensaje citado (usando la misma expresión regular que en tu código)
   const regex = /\*SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s+(\d+):\*/i;
   const match = quotedText.match(regex);
   if (!match) {
@@ -171,7 +71,8 @@ async function processTeamFeedbackResponse(client, message) {
   }
   const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
-  
+
+  // Obtener la incidencia de la BD
   let incidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
       if (err) return reject(err);
@@ -182,11 +83,13 @@ async function processTeamFeedbackResponse(client, message) {
     console.log("No se encontró la incidencia con el ID:", incidenceId);
     return "No se encontró la incidencia correspondiente.";
   }
-  
+
+  // Detectar el tipo de respuesta: "confirmacion" o "feedback"
   const responseType = detectResponseType(client, message.body);
+  // Determinar el equipo a partir del grupo de origen del mensaje
   const team = await determineTeamFromGroup(message);
-  
-  // Registrar la respuesta (ya sea confirmación o feedback) en el historial
+
+  // Registrar la respuesta en el historial (se guarda siempre)
   const record = {
     usuario: message.author || message.from,
     comentario: message.body,
@@ -200,8 +103,8 @@ async function processTeamFeedbackResponse(client, message) {
       resolve();
     });
   });
-  
-  // Si es confirmación, actualizar solo la confirmación para ese equipo
+
+  // Si la respuesta es confirmación, actualizar el objeto de confirmaciones para ese equipo
   if (responseType === "confirmacion") {
     let updatedConfirmations = {};
     if (incidence.confirmaciones && typeof incidence.confirmaciones === "object") {
@@ -216,55 +119,63 @@ async function processTeamFeedbackResponse(client, message) {
       });
     });
   }
-  
-  // Recuperar el estado actualizado de la incidencia
+
+  // Recuperar la incidencia actualizada para saber el estado de confirmaciones y feedback
   let updatedIncidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidence.id, (err, row) => {
       if (err) return reject(err);
-      // Parsear confirmaciones y feedbackHistory
-      if (row.confirmaciones) {
-        try { row.confirmaciones = JSON.parse(row.confirmaciones); } catch (e) { row.confirmaciones = {}; }
-      } else { row.confirmaciones = {}; }
-      if (row.feedbackHistory) {
-        try { row.feedbackHistory = JSON.parse(row.feedbackHistory); } catch (e) { row.feedbackHistory = []; }
-      } else { row.feedbackHistory = []; }
+      try {
+        row.confirmaciones = row.confirmaciones ? JSON.parse(row.confirmaciones) : {};
+      } catch (e) {
+        row.confirmaciones = {};
+      }
+      try {
+        row.feedbackHistory = row.feedbackHistory ? JSON.parse(row.feedbackHistory) : [];
+      } catch (e) {
+        row.feedbackHistory = [];
+      }
       resolve(row);
     });
   });
-  
-  // Determinar equipos requeridos a partir de la incidencia (categorías separadas por coma)
+
+  // Determinar los equipos requeridos a partir de las categorías (se asume que incidence.categoria contiene las categorías separadas por coma)
   const requiredTeams = updatedIncidence.categoria.split(',').map(c => c.trim().toLowerCase());
   const confirmedTeams = Object.keys(updatedIncidence.confirmaciones);
   
-  // Agregar feedback recibido, agrupando por equipo (tomando el último feedback de cada equipo)
+  // Agrupar el feedback recibido (para los equipos que no han confirmado) y tomar el último mensaje de cada equipo
   const feedbackByTeam = {};
   updatedIncidence.feedbackHistory.forEach(r => {
-    if (requiredTeams.includes(r.equipo) && r.tipo === "feedbackrespuesta") {
+    if (requiredTeams.includes(r.equipo) && r.tipo === "feedback") {
       feedbackByTeam[r.equipo] = r.comentario;
     }
   });
+
+  // Mapear los nombres de equipo para mostrar (según tu configuración)
+  const displayNamesMapping = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+  const confirmedDisplay = confirmedTeams.length > 0 
+    ? confirmedTeams.map(t => displayNamesMapping[t] || t.toUpperCase()).join(', ')
+    : "Ninguno";
   
-  // Si no se han confirmado todos los equipos, enviar mensaje parcial
+  // Para equipos que han enviado feedback pero aún no han confirmado
+  const pendingTeams = requiredTeams.filter(t => !confirmedTeams.includes(t));
+  let feedbackDisplay = "";
+  pendingTeams.forEach(t => {
+    if (feedbackByTeam[t]) {
+      feedbackDisplay += `${displayNamesMapping[t] || t.toUpperCase()}: "${feedbackByTeam[t]}"\n`;
+    }
+  });
+  
+  const mainGroupChat = await client.getChatById(config.groupPruebaId);
+  // Si no han respondido todos, enviar mensaje parcial
   if (confirmedTeams.length < requiredTeams.length) {
-    const displayNamesMapping = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
-    const confirmedDisplay = confirmedTeams.map(t => displayNamesMapping[t] || t.toUpperCase()).join(', ') || "Ninguno";
-    let feedbackDisplay = "";
-    const pendingTeams = requiredTeams.filter(t => !confirmedTeams.includes(t));
-    pendingTeams.forEach(t => {
-      if (feedbackByTeam[t]) {
-        feedbackDisplay += `${displayNamesMapping[t] || t.toUpperCase()}: "${feedbackByTeam[t]}"\n`;
-      }
-    });
-    const mainGroupChat = await client.getChatById(config.groupPruebaId);
     const partialMsg = `*ATENCIÓN TAREA ${updatedIncidence.id}*\n${updatedIncidence.descripcion}\nConfirmación recibida: ${confirmedDisplay}\nFeedback recibido:\n${feedbackDisplay || "Ninguno"}\nLa tarea permanece pendiente (${confirmedTeams.length} de ${requiredTeams.length} equipos).`;
     await mainGroupChat.sendMessage(partialMsg);
     return "Confirmación/Feedback parcial procesado.";
   } else {
-    // Si todos los equipos han confirmado, marcar la incidencia como completada
+    // Si todos han confirmado, marcar la incidencia como completada
     return new Promise((resolve, reject) => {
       incidenceDB.updateIncidenciaStatus(updatedIncidence.id, "completada", async (err) => {
         if (err) return reject(err);
-        const mainGroupChat = await client.getChatById(config.groupPruebaId);
         const completeMsg = `RESPUESTA A RETROALIMENTACION PARA LA TAREA ${updatedIncidence.id}:\n${updatedIncidence.descripcion}\nTODOS LOS EQUIPOS HAN CONFIRMADO.`;
         await mainGroupChat.sendMessage(completeMsg);
         resolve("Confirmación completa procesada.");
@@ -293,6 +204,7 @@ async function getFeedbackConfirmationMessage(identifier) {
     console.log("No se encontró incidencia con el identificador: " + identifier);
     return null;
   }
+  
   if (incidence.estado.toLowerCase() === "completada") {
     const creationTime = moment(incidence.fechaCreacion);
     const completionTime = moment();
@@ -373,7 +285,6 @@ async function processRetroRequest(client, message) {
     sentToAny = true;
   }
   if (sentToAny) {
-    // Crear una lista de nombres de equipo para mostrar en el mensaje final
     const displayNamesMapping = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
     const displayNamesArray = categories.map(cat => displayNamesMapping[cat] || cat.toUpperCase());
     const displayNamesString = displayNamesArray.join(", ");
@@ -393,4 +304,6 @@ module.exports = {
   detectRetroRequest,
   processRetroRequest
 };
-//tareas parciales
+
+
+//confirmacion multiple
