@@ -5,10 +5,9 @@ const moment = require('moment-timezone');
 /**
  * Procesa un mensaje de confirmación recibido en los grupos destino.
  * Realiza:
- *  - Validación del mensaje citado y extracción del ID de incidencia.
- *  - Detección de palabras/frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la base de datos, ya sea de forma parcial
- *    (si faltan confirmaciones) o final (si todas confirman).
+ *  - Validación del mensaje citado y extracción del ID de la incidencia.
+ *  - Detección de palabras o frases de confirmación usando client.keywordsData.
+ *  - Actualización del objeto incidencia en la base de datos, de forma parcial (por fases) o final.
  *  - Envío de un mensaje parcial o final al grupo principal.
  */
 async function processConfirmation(client, message) {
@@ -22,17 +21,19 @@ async function processConfirmation(client, message) {
   }
   const quotedMessage = await message.getQuotedMessage();
   const quotedBodyLower = quotedMessage.body.toLowerCase();
-  // Se acepta el mensaje citado si inicia con alguno de estos patrones:
+
+  // Aceptar mensajes que inicien con cualquiera de estos patrones:
   if (!(quotedBodyLower.startsWith("*recordatorio: tarea incompleta*") ||
         quotedBodyLower.startsWith("nueva tarea recibida") ||
         quotedBodyLower.startsWith("recordatorio: incidencia") ||
-        quotedBodyLower.startsWith("*solicitud de retroalimentacion para la tarea"))) {
+        quotedBodyLower.startsWith("solicitud de retroalimentacion para la tarea"))) {
     console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
     return;
   }
+  
   // Intentar extraer el ID usando el patrón de solicitud de retroalimentación
-  let idMatch = quotedMessage.body.match(/\*?SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s+(\d+):/i);
-  // Si no se encuentra, intentar con el patrón tradicional
+  let idMatch = quotedMessage.body.match(/SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i);
+  // Si no se encuentra, usar el patrón tradicional
   if (!idMatch) {
     idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
   }
@@ -62,6 +63,7 @@ async function processConfirmation(client, message) {
       return;
     }
     
+    // Determinar el equipo que responde, según el id del chat
     let categoriaConfirmada = "";
     if (chatId === config.groupBotDestinoId) {
       categoriaConfirmada = "it";
@@ -71,120 +73,74 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
+    // Actualizar el objeto de confirmaciones para ese equipo
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
-      incidenceDB.updateConfirmaciones(incidenciaId, JSON.stringify(incidencia.confirmaciones), (err) => {
-        if (err) {
-          console.error("Error al actualizar confirmaciones:", err);
-        } else {
-          console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
-          const confirmacionesValues = Object.values(incidencia.confirmaciones);
-          const fase = confirmacionesValues.filter(val => val !== false).length;
-          const totalTeams = Object.keys(incidencia.confirmaciones).length;
-          if (fase < totalTeams) {
-            const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA DE LLAVES" };
-            const confirmedTeams = Object.entries(incidencia.confirmaciones)
-              .filter(([cat, val]) => val !== false)
-              .map(([cat]) => teamNames[cat] || cat.toUpperCase());
-            const missingTeams = Object.entries(incidencia.confirmaciones)
-              .filter(([cat, val]) => val === false)
-              .map(([cat]) => teamNames[cat] || cat.toUpperCase());
-            const responseTime = moment().diff(moment(incidencia.fechaCreacion));
-            const diffDuration = moment.duration(responseTime);
-            const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
-            
-            const partialMessage = `*ATENCIÓN TAREA ESTA FASE ${fase}*\n` +
-              `${incidencia.descripcion}\n\n` +
-              `Tarea terminada por:\n${teamNames[categoriaConfirmada]}\n\n` +
-              `Equipo(s) que faltan:\n${missingTeams.join(", ")}\n\n` +
-              `⏱️Tiempo de respuesta: ${diffResponseStr}`;
-            
-            client.getChatById(config.groupPruebaId)
-              .then(chat => {
-                chat.sendMessage(partialMessage);
-                console.log("Mensaje de confirmación parcial enviado al grupo principal:", partialMessage);
-              })
-              .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
-            return;
-          } else {
-            incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
-              if (err) {
-                console.error("Error al actualizar la incidencia:", err);
-                return;
-              }
-              await quotedMessage.reply(`La incidencia (ID: ${incidenciaId}) ha sido marcada como COMPLETADA.`);
-              console.log(`Incidencia ${incidenciaId} actualizada a COMPLETADA en grupo destino.`);
-              enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada);
-            });
-          }
-        }
-      });
     } else {
-      incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
-        if (err) {
-          console.error("Error al actualizar la incidencia:", err);
-          return;
-        }
-        await quotedMessage.reply(`La incidencia (ID: ${incidenciaId}) ha sido marcada como COMPLETADA.`);
-        console.log(`Incidencia ${incidenciaId} actualizada a COMPLETADA en grupo destino.`);
-        enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada);
-      });
+      incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
     }
+    
+    incidenceDB.updateConfirmaciones(incidenciaId, JSON.stringify(incidencia.confirmaciones), (err) => {
+      if (err) {
+        console.error("Error al actualizar confirmaciones:", err);
+      } else {
+        console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
+        
+        // Calcular la fase y obtener los equipos requeridos a partir de la incidencia.
+        // Suponemos que incidencia.categoria tiene las categorías separadas por coma.
+        const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+        const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
+        // Si la propiedad confirmaciones ya existe, usamos sus claves; de lo contrario, usamos requiredTeams
+        const confirmedTeams = incidencia.confirmaciones ? 
+          Object.keys(incidencia.confirmaciones).filter(k => incidencia.confirmaciones[k] !== false) : [];
+        const totalTeams = requiredTeams.length;
+        
+        // Calcular los equipos pendientes: usar nombres mapeados
+        const missingTeams = requiredTeams
+          .filter(team => !confirmedTeams.includes(team))
+          .map(team => teamNames[team] || team.toUpperCase());
+        
+        // Calcular el tiempo de respuesta
+        const responseTime = moment().diff(moment(incidencia.fechaCreacion));
+        const diffDuration = moment.duration(responseTime);
+        const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
+        
+        // Construir el bloque de comentarios para cada equipo
+        // Buscamos en feedbackHistory el último feedback de cada equipo
+        let comentarios = "";
+        let feedbackHistory = [];
+        try {
+          feedbackHistory = incidencia.feedbackHistory ? JSON.parse(incidencia.feedbackHistory) : [];
+        } catch (e) {
+          feedbackHistory = [];
+        }
+        for (let team of requiredTeams) {
+          const displayName = teamNames[team] || team.toUpperCase();
+          // Buscar feedback para este equipo
+          const record = feedbackHistory.find(r => r.equipo.toLowerCase() === team && r.tipo === "feedback");
+          const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
+          comentarios += `${displayName}: ${comentario}\n`;
+        }
+        
+        // Construir el mensaje parcial con el nuevo formato
+        const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
+          `${incidencia.descripcion}\n\n` +
+          `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
+          `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
+          `Comentarios:\n${comentarios}\n` +
+          `⏱️Tiempo de respuesta: ${diffResponseStr}`;
+        
+        client.getChatById(config.groupPruebaId)
+          .then(chat => {
+            chat.sendMessage(partialMessage);
+            console.log("Mensaje de confirmación parcial enviado al grupo principal:", partialMessage);
+          })
+          .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
+      }
+    });
   });
 }
 
-/**
- * enviarConfirmacionGlobal - Envía un mensaje final de confirmación al grupo principal.
- */
-async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
-  let teamNames = {};
-  if (incidencia.categoria) {
-    incidencia.categoria.split(',').forEach(cat => {
-      const t = cat.trim().toLowerCase();
-      if (t === "it") teamNames[t] = "IT";
-      else if (t === "man") teamNames[t] = "MANTENIMIENTO";
-      else if (t === "ama") teamNames[t] = "AMA DE LLAVES";
-    });
-  }
-  const equiposInvolucrados = Object.values(teamNames).join(", ");
-  
-  let cronometros = "";
-  if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
-    for (const [cat, confirmTime] of Object.entries(incidencia.confirmaciones)) {
-      if (confirmTime !== false) {
-        const team = teamNames[cat] || cat.toUpperCase();
-        const diffDuration = moment.duration(moment(confirmTime).diff(moment(incidencia.fechaCreacion)));
-        const diffStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
-        cronometros += `Cronómetro ${team}: ${diffStr}\n`;
-      }
-    }
-  }
-  
-  const creationTime = moment(incidencia.fechaCreacion);
-  const formattedCreation = creationTime.format("DD/MM/YYYY hh:mm a");
-  const confirmationTime = moment();
-  const formattedConfirmation = confirmationTime.format("DD/MM/YYYY hh:mm a");
-  const diffDurationGlobal = moment.duration(confirmationTime.diff(creationTime));
-  const diffStrGlobal = `${Math.floor(diffDurationGlobal.asDays())} día(s), ${diffDurationGlobal.hours()} hora(s), ${diffDurationGlobal.minutes()} minuto(s)`;
-  
-  const confirmationMessage = `*ATENCIÓN*\n` +
-    `Tarea de *${equiposInvolucrados}*:\n\n` +
-    `${incidencia.descripcion}\n\n` +
-    `ha sido *COMPLETADA*\n\n` +
-    `*📅Creación:* ${formattedCreation}\n` +
-    `*📅Conclusión:* ${formattedConfirmation}\n\n` +
-    `*⏱️Se concluyó en:* ${diffStrGlobal}\n` +
-    `${cronometros}` +
-    `*ID:* ${incidenciaId}\n\n` +
-    `*MUCHAS GRACIAS POR SU PACIENCIA* 😊`;
-  
-  try {
-    const mainGroupChat = await client.getChatById(config.groupPruebaId);
-    await mainGroupChat.sendMessage(confirmationMessage);
-    console.log(`Confirmación final enviada al grupo principal: ${confirmationMessage}`);
-  } catch (error) {
-    console.error("Error al enviar confirmación al grupo principal:", error);
-  }
-}
-
 module.exports = { processConfirmation };
+
+//nueva tarea
