@@ -98,7 +98,7 @@ async function processFeedbackResponse(client, message, incidence) {
   const responseText = message.body;
   const responseType = detectResponseType(client, responseText);
   
-  // Crear registro con información adicional (tipo: confirmacion o feedbackrespuesta)
+  // Registro general (para cualquier respuesta)
   const record = {
     usuario: message.author || message.from,
     comentario: responseText,
@@ -136,7 +136,8 @@ async function processFeedbackResponse(client, message, incidence) {
 }
 
 /**
- * determineTeamFromGroup - Determina el equipo a partir del grupo de donde se envía el mensaje.
+ * determineTeamFromGroup - Determina el equipo a partir del grupo de donde se envía el mensaje,
+ * usando los identificadores definidos en la configuración.
  */
 async function determineTeamFromGroup(message) {
   const chat = await message.getChat();
@@ -155,8 +156,9 @@ async function determineTeamFromGroup(message) {
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo).
  * Siempre guarda el registro en el historial.
- * Si la respuesta contiene una palabra de confirmación se realiza el proceso de confirmación,
- * de lo contrario se guarda el feedback en la BD y se notifica al grupo principal.
+ * Si la respuesta es de confirmación, se actualiza la confirmación del equipo correspondiente;
+ * si es feedback, se registra el feedback.
+ * Además, para incidencias de múltiples categorías, se evalúa si todos los equipos han confirmado.
  */
 async function processTeamFeedbackResponse(client, message) {
   if (!message.hasQuotedMsg) {
@@ -195,7 +197,7 @@ async function processTeamFeedbackResponse(client, message) {
   const responseType = detectResponseType(client, message.body);
   const team = await determineTeamFromGroup(message);
   
-  // Crear registro de feedback con información del equipo
+  // Registro general con información del equipo
   const record = {
     usuario: message.author || message.from,
     comentario: message.body,
@@ -212,25 +214,50 @@ async function processTeamFeedbackResponse(client, message) {
   });
   
   if (responseType === "confirmacion") {
-    return new Promise((resolve, reject) => {
-      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
+    // Para confirmaciones en incidencias con múltiples categorías,
+    // se asume que incidence.categoria contiene las categorías separadas por coma.
+    // Se actualiza la confirmación únicamente para el equipo que respondió.
+    let updatedConfirmations = {};
+    if (incidence.confirmaciones && typeof incidence.confirmaciones === "object") {
+      updatedConfirmations = { ...incidence.confirmaciones, [team]: new Date().toISOString() };
+    } else {
+      updatedConfirmations = { [team]: new Date().toISOString() };
+    }
+    
+    await new Promise((resolve, reject) => {
+      incidenceDB.updateConfirmaciones(incidence.id, JSON.stringify(updatedConfirmations), (err) => {
         if (err) return reject(err);
-        const mainGroupChat = await client.getChatById(config.groupPruebaId);
-        const confirmMsg = `RESPUESTA A RETROALIMENTACION PARA LA TAREA ${incidence.id}:\n${incidence.descripcion}\nEL EQUIPO CONFIRMA.`;
-        await mainGroupChat.sendMessage(confirmMsg);
-        console.log(`Incidencia ${incidence.id} marcada como completada mediante retroalimentación de equipo.`);
-        resolve("Confirmación procesada correctamente.");
+        resolve();
       });
     });
+    
+    // Verificar si ya han confirmado todos los equipos requeridos
+    const requiredTeams = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
+    const confirmedTeams = Object.keys(updatedConfirmations);
+    if (confirmedTeams.length < requiredTeams.length) {
+      const missingTeams = requiredTeams.filter(r => !confirmedTeams.includes(r));
+      const mainGroupChat = await client.getChatById(config.groupPruebaId);
+      const partialMsg = `*ATENCIÓN TAREA ${incidence.id}*\n${incidence.descripcion}\nConfirmaciones:\nConfirmadas: ${confirmedTeams.join(', ')}\nPendientes: ${missingTeams.join(', ')}`;
+      await mainGroupChat.sendMessage(partialMsg);
+      return "Confirmación parcial procesada.";
+    } else {
+      // Si todas han confirmado, marcar la incidencia como completada
+      return new Promise((resolve, reject) => {
+        incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
+          if (err) return reject(err);
+          const mainGroupChat = await client.getChatById(config.groupPruebaId);
+          const confirmMsg = `RESPUESTA A RETROALIMENTACION PARA LA TAREA ${incidence.id}:\n${incidence.descripcion}\nTODOS LOS EQUIPOS HAN CONFIRMADO.`;
+          await mainGroupChat.sendMessage(confirmMsg);
+          console.log(`Incidencia ${incidence.id} marcada como completada mediante retroalimentación de equipo.`);
+          resolve("Confirmación completa procesada.");
+        });
+      });
+    }
   } else {
-    return new Promise((resolve, reject) => {
-      (async () => {
-        const mainGroupChat = await client.getChatById(config.groupPruebaId);
-        const feedbackMsg = `RESPUESTA A RETROALIMENTACION PARA LA TAREA ${incidence.id}:\n${incidence.descripcion}\nEL EQUIPO RESPONDE:\n${message.body}`;
-        await mainGroupChat.sendMessage(feedbackMsg);
-        resolve("Feedback del equipo registrado y notificado correctamente.");
-      })().catch(reject);
-    });
+    const mainGroupChat = await client.getChatById(config.groupPruebaId);
+    const feedbackMsg = `RESPUESTA A RETROALIMENTACION PARA LA TAREA ${incidence.id}:\n${incidence.descripcion}\nEL EQUIPO ${team.toUpperCase()} RESPONDE:\n${message.body}`;
+    await mainGroupChat.sendMessage(feedbackMsg);
+    return "Feedback del equipo registrado y notificado correctamente.";
   }
 }
 
@@ -348,4 +375,5 @@ module.exports = {
   processRetroRequest
 };
 
-//hola
+
+//logica multiple
