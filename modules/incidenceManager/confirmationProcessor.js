@@ -24,6 +24,7 @@ async function processConfirmation(client, message) {
   const quotedBodyLower = quotedMessage.body.toLowerCase();
   if (!(quotedBodyLower.startsWith("*recordatorio: tarea incompleta*") ||
         quotedBodyLower.startsWith("nueva tarea recibida") ||
+        quotedBodyLower.startsWith("*solicitud de retroalimentacion*") ||
         quotedBodyLower.startsWith("recordatorio: incidencia"))) {
     console.log("El mensaje citado no corresponde a una tarea enviada o recordatorio. Se ignora.");
     return;
