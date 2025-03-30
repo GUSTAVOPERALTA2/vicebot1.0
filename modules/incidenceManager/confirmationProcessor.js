@@ -7,7 +7,7 @@ const moment = require('moment-timezone');
  * Realiza:
  *  - Validación del mensaje citado y extracción del ID de la incidencia.
  *  - Detección de palabras o frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la base de datos, de forma parcial (por fases) o final.
+ *  - Actualización del objeto incidencia en la BD, de forma parcial (por fases) o final.
  *  - Envío de un mensaje parcial o final al grupo principal.
  */
 async function processConfirmation(client, message) {
@@ -21,14 +21,14 @@ async function processConfirmation(client, message) {
   }
   const quotedMessage = await message.getQuotedMessage();
   
-  // Limpiar el texto citado: eliminar asteriscos y espacios iniciales
-  const cleanedQuotedBody = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
+  // Limpiar el texto citado para quitar asteriscos y espacios iniciales
+  const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
   
-  // Se aceptan mensajes que inicien con cualquiera de estos patrones:
-  if (!(cleanedQuotedBody.startsWith("recordatorio: tarea incompleta*") ||
-        cleanedQuotedBody.startsWith("nueva tarea recibida") ||
-        cleanedQuotedBody.startsWith("recordatorio: incidencia") ||
-        cleanedQuotedBody.startsWith("solicitud de retroalimentacion para la tarea"))) {
+  // Se aceptan mensajes que inicien con alguno de estos patrones:
+  if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
+        cleanedQuotedText.startsWith("nueva tarea recibida") ||
+        cleanedQuotedText.startsWith("recordatorio: incidencia") ||
+        cleanedQuotedText.startsWith("solicitud de retroalimentacion para la tarea"))) {
     console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
     return;
   }
@@ -65,6 +65,7 @@ async function processConfirmation(client, message) {
       return;
     }
     
+    // Determinar el equipo que responde según el id del chat
     let categoriaConfirmada = "";
     if (chatId === config.groupBotDestinoId) {
       categoriaConfirmada = "it";
@@ -74,7 +75,7 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
-    // Actualizar confirmaciones: se almacena la fecha de respuesta para el equipo que confirma
+    // Actualizar confirmaciones: almacenar la fecha de respuesta para el equipo que confirma
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
     } else {
@@ -86,22 +87,29 @@ async function processConfirmation(client, message) {
         console.error("Error al actualizar confirmaciones:", err);
       } else {
         console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
-        const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA DE LLAVES" };
-        const confirmedTeams = incidencia.confirmaciones ? Object.keys(incidencia.confirmaciones).filter(k => incidencia.confirmaciones[k] !== false) : [];
+        
+        // Obtener mapeo de nombres y equipos requeridos
+        const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
         const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
+        const confirmedTeams = incidencia.confirmaciones ? 
+          Object.keys(incidencia.confirmaciones).filter(k => incidencia.confirmaciones[k] !== false) : [];
         const totalTeams = requiredTeams.length;
         const missingTeams = requiredTeams
           .filter(team => !confirmedTeams.includes(team))
           .map(team => teamNames[team] || team.toUpperCase());
+        
         const responseTime = moment().diff(moment(incidencia.fechaCreacion));
         const diffDuration = moment.duration(responseTime);
         const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
+        
+        // Generar bloque de comentarios consultando el campo "comentario" desde feedbackHistory
+        const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
         const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
           `${incidencia.descripcion}\n\n` +
           `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
           `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
-          `Comentarios:\n${generarComentarios(incidencia, requiredTeams, teamNames)}\n` +
+          `Comentarios:\n${comentarios}\n` +
           `⏱️Tiempo de respuesta: ${diffResponseStr}`;
         
         client.getChatById(config.groupPruebaId)
@@ -116,8 +124,9 @@ async function processConfirmation(client, message) {
 }
 
 /**
- * generarComentarios - Genera un bloque de comentarios por equipo.
- * Recorre cada equipo requerido y muestra el último feedback registrado o "Sin comentarios".
+ * generarComentarios - Consulta el historial de feedback y extrae el campo "comentario" para cada equipo.
+ * Para cada equipo requerido, se busca en feedbackHistory el último registro de tipo "feedback".
+ * Si no se encuentra, se asigna "Sin comentarios".
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
   let comentarios = "";
@@ -129,8 +138,8 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Buscar el último feedback registrado para el equipo
-    const record = feedbackHistory.filter(r => r.equipo.toLowerCase() === team && r.tipo === "feedback").pop();
+    // Buscar el último registro de feedback para este equipo (comparando en minúsculas)
+    const record = feedbackHistory.find(r => r.equipo.toLowerCase() === team && r.comentario);
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
   }
@@ -147,7 +156,7 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
       const t = cat.trim().toLowerCase();
       if (t === "it") teamNames[t] = "IT";
       else if (t === "man") teamNames[t] = "MANTENIMIENTO";
-      else if (t === "ama") teamNames[t] = "AMA DE LLAVES";
+      else if (t === "ama") teamNames[t] = "AMA";
     });
   }
   const equiposInvolucrados = Object.values(teamNames).join(", ");
@@ -175,7 +184,7 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
     `Tarea de *${equiposInvolucrados}*:\n\n` +
     `${incidencia.descripcion}\n\n` +
     `ha sido *COMPLETADA*\n\n` +
-    `*📅Creación:* ${formattedCreation}\n` +
+    `*📅Creación:* ${incidencia.fechaCreacion}\n` +
     `*📅Conclusión:* ${formattedConfirmation}\n\n` +
     `*⏱️Se concluyó en:* ${diffStrGlobal}\n` +
     `${cronometros}` +
@@ -193,4 +202,4 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
 
 module.exports = { processConfirmation };
 
-//procesamiento de incindencias
+//NUEVO MODULO
