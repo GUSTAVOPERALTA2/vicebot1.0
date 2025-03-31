@@ -40,6 +40,10 @@ async function handleIncidence(client, message) {
         console.log("Indicadores retro detectados, procesando solicitud de feedback.");
         await handleFeedbackRequestFromOrigin(client, message);
         return;
+      }else{
+        // Si no hay indicadores "retro", se informa al usuario que la forma de contestación no es válida
+        await chat.sendMessage("La forma de contestación no es válida para registrar una incidencia. Por favor, envía tu incidencia sin citar un mensaje.");
+        return;
       }
     }
     // Si no se detectan indicadores retro, se procesa como nueva incidencia
