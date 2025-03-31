@@ -151,16 +151,55 @@ async function determineTeamFromGroup(message) {
 }
 
 /**
+ * generarComentarios - Genera una sección de comentarios a partir del historial de feedback.
+ */
+function generarComentarios(incidence, requiredTeams, teamNames) {
+  let comentarios = "";
+  let feedbackHistory = [];
+  try {
+    if (typeof incidence.feedbackHistory === "string") {
+      feedbackHistory = JSON.parse(incidence.feedbackHistory);
+    } else if (Array.isArray(incidence.feedbackHistory)) {
+      feedbackHistory = incidence.feedbackHistory;
+    }
+  } catch (e) {
+    feedbackHistory = [];
+  }
+  for (let team of requiredTeams) {
+    const displayName = teamNames[team] || team.toUpperCase();
+    // Buscar el último feedback para el equipo
+    const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
+    const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
+    comentarios += `${displayName}: ${comentario}\n`;
+  }
+  return comentarios;
+}
+
+/**
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo) y envía al grupo principal la respuesta.
  * 
- * Si la respuesta es de feedback (no de confirmación), se envía el mensaje con el formato:
+ * Si la respuesta es de feedback (no de confirmación), se envía:
+ *   RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
+ *   {incidence.descripcion}
+ *   
+ *   EL EQUIPO RESPONDE:
+ *   {respuesta del equipo}
  * 
- * RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
- * {incidence.descripcion}
- * 
- * EL EQUIPO RESPONDE:
- * {respuesta del equipo}
+ * Si la respuesta es de confirmación, se envía:
+ *   ATENCIÓN TAREA EN FASE {fase} de {total equipos}
+ *   {incidence.descripcion}
+ *   
+ *   Tarea terminada por:
+ *   {equipo que terminó}
+ *   
+ *   Equipo(s) que faltan:
+ *   {lista de equipos faltantes}
+ *   
+ *   Comentarios:
+ *   {comentarios por equipo}
+ *   
+ *   ⏱️Tiempo de respuesta: {tiempo}
  */
 async function processTeamFeedbackResponse(client, message) {
   if (!message.hasQuotedMsg) {
@@ -217,18 +256,35 @@ async function processTeamFeedbackResponse(client, message) {
       }
       console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
       
-      // Determinar el tipo de respuesta para enviar el mensaje formateado al grupo principal
       const responseType = detectResponseType(client, message.body);
       let responseMsg = "";
       
       if (responseType === "feedbackrespuesta") {
+        // Si es feedback, enviamos el mensaje en formato de retroalimentación
         responseMsg = `RESPUESTA DE RETROALIMENTACION, EQUIPO ${team.toUpperCase()}\n` +
                       `${incidence.descripcion}\n\n` +
                       `EL EQUIPO RESPONDE:\n${message.body}`;
-      } else {
-        // Si fuera confirmación u otro, se podría ajustar el formato según corresponda.
-        responseMsg = `*RESPUESTA DE RETROALIMENTACION*\n${incidence.descripcion}\n\n` +
-                      `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+      } else if (responseType === "confirmacion") {
+        // Si es confirmación, actualizamos la confirmación para este equipo
+        incidence.confirmaciones = incidence.confirmaciones || {};
+        incidence.confirmaciones[team] = new Date().toISOString();
+        
+        const requiredTeams = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
+        const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+        const confirmedTeams = Object.keys(incidence.confirmaciones);
+        const totalTeams = requiredTeams.length;
+        const missingTeams = requiredTeams.filter(t => !confirmedTeams.includes(t)).map(t => teamNames[t] || t.toUpperCase());
+        
+        const responseTime = moment().diff(moment(incidence.fechaCreacion));
+        const diffDuration = moment.duration(responseTime);
+        const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
+        
+        responseMsg = `ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}\n` +
+                      `${incidence.descripcion}\n\n` +
+                      `Tarea terminada por:\n${teamNames[team] || team.toUpperCase()}\n\n` +
+                      `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
+                      `Comentarios:\n${generarComentarios(incidence, requiredTeams, teamNames)}` +
+                      `⏱️Tiempo de respuesta: ${diffResponseStr}`;
       }
       
       // Enviar el mensaje al grupo principal
@@ -236,7 +292,7 @@ async function processTeamFeedbackResponse(client, message) {
         .then(mainGroupChat => {
           mainGroupChat.sendMessage(responseMsg)
             .then(() => {
-              console.log("Mensaje de respuesta de retroalimentacion enviado al grupo principal.");
+              console.log("Mensaje enviado al grupo principal:", responseMsg);
               resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
             })
             .catch(err => {
@@ -382,4 +438,4 @@ module.exports = {
   processRetroRequest
 };
 
-//listo
+//processor
