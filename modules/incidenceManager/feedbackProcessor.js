@@ -47,7 +47,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Si es un mensaje de detalles generado por /tareaDetalles:
   if (text.includes("Detalles de la incidencia")) {
     const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
     const match = text.match(regex);
@@ -57,7 +56,6 @@ async function extractFeedbackIdentifier(quotedMessage) {
     }
   }
   
-  // En otro caso, se utiliza la metadata (originalMsgId) del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -92,8 +90,6 @@ function detectResponseType(client, text) {
 
 /**
  * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
- * Si la respuesta es de confirmación, actualiza la incidencia a "completada".
- * Si es feedback, lo registra en el historial.
  */
 async function processFeedbackResponse(client, message, incidence) {
   const responseText = message.body;
@@ -167,7 +163,6 @@ function generarComentarios(incidence, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Buscar el último feedback para el equipo
     const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
@@ -176,22 +171,21 @@ function generarComentarios(incidence, requiredTeams, teamNames) {
 }
 
 /**
- * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
- * en los grupos destino (por el equipo) y envía al grupo principal la respuesta.
+ * processTeamFeedbackResponse - Procesa la respuesta enviada en grupos destino y envía al grupo principal.
  * 
- * Si la respuesta es de feedback (no de confirmación), se envía:
+ * - Si la respuesta es de feedback (tipo "feedbackrespuesta"), se envía:
  *   RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
  *   {incidence.descripcion}
  *   
  *   EL EQUIPO RESPONDE:
  *   {respuesta del equipo}
  * 
- * Si la respuesta es de confirmación, se envía:
+ * - Si la respuesta es de confirmación ("confirmacion"), se envía:
  *   ATENCIÓN TAREA EN FASE {fase} de {total equipos}
  *   {incidence.descripcion}
  *   
  *   Tarea terminada por:
- *   {equipo que terminó}
+ *   {equipo que confirmó}
  *   
  *   Equipo(s) que faltan:
  *   {lista de equipos faltantes}
@@ -209,15 +203,13 @@ async function processTeamFeedbackResponse(client, message) {
   
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
-  
-  // Se normaliza el texto a minúsculas y se verifica que contenga el patrón esperado
   const normalizedQuotedText = quotedText.toLowerCase();
+  
   if (!normalizedQuotedText.includes("solicitud de retroalimentacion para la tarea")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Regex para extraer el id justo después de "solicitud de retroalimentacion para la tarea"
   const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
   const match = normalizedQuotedText.match(regex);
   if (!match) {
@@ -238,7 +230,6 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
-  // Obtenemos el equipo a partir del grupo destino de donde se responde
   const team = await determineTeamFromGroup(message);
   
   const feedbackRecord = {
@@ -260,18 +251,16 @@ async function processTeamFeedbackResponse(client, message) {
       let responseMsg = "";
       
       if (responseType === "feedbackrespuesta") {
-        // Si es feedback, enviamos el mensaje en formato de retroalimentación
+        // BUG 2: Enviar mensaje de feedback
         responseMsg = `RESPUESTA DE RETROALIMENTACION, EQUIPO ${team.toUpperCase()}\n` +
                       `${incidence.descripcion}\n\n` +
                       `EL EQUIPO RESPONDE:\n${message.body}`;
       } else if (responseType === "confirmacion") {
-        // Si es confirmación, actualizamos la confirmación para este equipo
-        incidence.confirmaciones = incidence.confirmaciones || {};
-        incidence.confirmaciones[team] = new Date().toISOString();
-        
+        // BUG 1: Para confirmación, se sobrescribe confirmaciones para que solo cuente la respuesta actual
+        incidence.confirmaciones = { [team]: new Date().toISOString() };
         const requiredTeams = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
         const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
-        const confirmedTeams = Object.keys(incidence.confirmaciones);
+        const confirmedTeams = Object.keys(incidence.confirmaciones); // Será solo [team]
         const totalTeams = requiredTeams.length;
         const missingTeams = requiredTeams.filter(t => !confirmedTeams.includes(t)).map(t => teamNames[t] || t.toUpperCase());
         
@@ -287,7 +276,6 @@ async function processTeamFeedbackResponse(client, message) {
                       `⏱️Tiempo de respuesta: ${diffResponseStr}`;
       }
       
-      // Enviar el mensaje al grupo principal
       client.getChatById(config.groupPruebaId)
         .then(mainGroupChat => {
           mainGroupChat.sendMessage(responseMsg)
@@ -310,7 +298,7 @@ async function processTeamFeedbackResponse(client, message) {
 
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * al identificador y construye un mensaje de retroalimentación.
+ * y construye un mensaje de retroalimentación.
  */
 async function getFeedbackConfirmationMessage(identifier) {
   let incidence;
@@ -361,10 +349,7 @@ async function detectRetroRequest(client, message) {
 }
 
 /**
- * processRetroRequest - Procesa la solicitud de retroalimentación para la nueva categoría "retro".
- * Verifica que el mensaje cite una incidencia y envía la solicitud de retroalimentación
- * únicamente a aquellas categorías (equipos) que aún no han marcado la tarea como completada.
- * Envía un mensaje de confirmación al chat de origen listando a qué equipos se envió.
+ * processRetroRequest - Procesa la solicitud de retroalimentación para la categoría "retro".
  */
 async function processRetroRequest(client, message) {
   const chat = await message.getChat();
@@ -393,11 +378,9 @@ async function processRetroRequest(client, message) {
     await chat.sendMessage("No se encontró la incidencia correspondiente.");
     return;
   }
-  // Se asume que la incidencia tiene una o más categorías separadas por comas.
   const categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
   const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
   let gruposEnviados = [];
-  // Enviar la solicitud únicamente a aquellas categorías que aún no han confirmado.
   for (const cat of categories) {
     if (incidence.confirmaciones && incidence.confirmaciones[cat]) {
       console.log(`La categoría ${cat} ya ha confirmado, no se envía retroalimentación.`);
@@ -438,4 +421,5 @@ module.exports = {
   processRetroRequest
 };
 
-//processor
+
+//nuevo modulo de confirmaciones
