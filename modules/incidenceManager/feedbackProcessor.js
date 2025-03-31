@@ -133,7 +133,7 @@ async function processFeedbackResponse(client, message, incidence) {
 
 /**
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
- * en los grupos destino (por el equipo).
+ * en los grupos destino (por el equipo) y envía al grupo principal la respuesta.
  */
 async function processTeamFeedbackResponse(client, message) {
   if (!message.hasQuotedMsg) {
@@ -199,7 +199,25 @@ async function processTeamFeedbackResponse(client, message) {
         return reject("Error al registrar el feedback.");
       }
       console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
-      resolve("Feedback del equipo registrado correctamente.");
+      
+      // Enviar mensaje al grupo principal con la respuesta del equipo
+      client.getChatById(config.groupPruebaId)
+        .then(mainGroupChat => {
+          const responseMsg = `*RESPUESTA DE RETROALIMENTACION*\n${incidence.descripcion}\n\n${team.toUpperCase()} RESPONDE:\n${message.body}`;
+          mainGroupChat.sendMessage(responseMsg)
+            .then(() => {
+              console.log("Mensaje de respuesta de retroalimentacion enviado al grupo principal.");
+              resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
+            })
+            .catch(err => {
+              console.error("Error al enviar mensaje al grupo principal:", err);
+              resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
+            });
+        })
+        .catch(err => {
+          console.error("Error al obtener chat principal:", err);
+          resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
+        });
     });
   });
 }
@@ -334,4 +352,4 @@ module.exports = {
   processRetroRequest
 };
 
-//id
+//formateo
