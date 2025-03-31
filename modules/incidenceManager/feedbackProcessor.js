@@ -116,7 +116,7 @@ async function processFeedbackResponse(client, message, incidence) {
   } else if (responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
-      comentario: responseText,
+      comentario: message.body,
       fecha: new Date().toISOString(),
       equipo: "solicitante"
     };
@@ -128,6 +128,25 @@ async function processFeedbackResponse(client, message, incidence) {
     });
   } else {
     return "No se reconoció un tipo de respuesta válido.";
+  }
+}
+
+/**
+ * determineTeamFromGroup - Determina el equipo (it, man, ama) a partir del chat del mensaje.
+ */
+async function determineTeamFromGroup(message) {
+  try {
+    const chat = await message.getChat();
+    const chatId = chat.id._serialized;
+    for (const [key, groupId] of Object.entries(config.destinoGrupos)) {
+      if (groupId === chatId) {
+        return key;
+      }
+    }
+    return "desconocido";
+  } catch (error) {
+    console.error("Error al determinar el equipo desde el grupo:", error);
+    return "desconocido";
   }
 }
 
@@ -151,7 +170,7 @@ async function processTeamFeedbackResponse(client, message) {
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Nuevo regex que extrae el id justo después de "solicitud de retroalimentacion para la tarea"
+  // Regex para extraer el id justo después de "solicitud de retroalimentacion para la tarea"
   const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
   const match = normalizedQuotedText.match(regex);
   if (!match) {
@@ -172,18 +191,8 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
-  function determineTeamFromGroup(message) {
-    if (message && message._data && message._data.chatId) {
-      const chatId = message._data.chatId;
-      for (const [key, groupId] of Object.entries(config.destinoGrupos)) {
-        if (groupId === chatId) {
-          return key;
-        }
-      }
-    }
-    return "desconocido";
-  }
-  const team = determineTeamFromGroup(message);
+  // Obtenemos el equipo del grupo destino de donde se responde
+  const team = await determineTeamFromGroup(message);
   
   const feedbackRecord = {
     usuario: message.author || message.from,
@@ -352,4 +361,5 @@ module.exports = {
   processRetroRequest
 };
 
-//formateo
+
+//equipo desconocido arreglado
