@@ -34,9 +34,8 @@ async function processConfirmation(client, message) {
     return;
   }
   
-  // Intentar extraer el ID usando el patrón de solicitud de retroalimentación
+  // Extraer el ID: se intenta primero con el patrón de solicitud de retroalimentación; si no, con el tradicional
   let idMatch = quotedMessage.body.match(/SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i);
-  // Si no se encuentra, usar el patrón tradicional
   if (!idMatch) {
     idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
   }
@@ -76,7 +75,7 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
-    // Actualizar confirmaciones para el equipo que confirma
+    // Actualizar confirmaciones: guardar la fecha para el equipo que confirma
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
     } else {
@@ -86,7 +85,13 @@ async function processConfirmation(client, message) {
     // Registrar en feedbackHistory el mensaje de confirmación
     let history = [];
     try {
-      history = incidencia.feedbackHistory ? JSON.parse(incidencia.feedbackHistory) : [];
+      if (typeof incidencia.feedbackHistory === "string") {
+        history = JSON.parse(incidencia.feedbackHistory);
+      } else if (Array.isArray(incidencia.feedbackHistory)) {
+        history = incidencia.feedbackHistory;
+      } else {
+        history = [];
+      }
     } catch (e) {
       history = [];
     }
@@ -112,7 +117,7 @@ async function processConfirmation(client, message) {
         
         const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
         const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
-        // Considerar confirmados solo aquellos cuyo valor es una fecha válida
+        // Se consideran confirmados aquellos cuyo valor sea una fecha válida
         const confirmedTeams = incidencia.confirmaciones 
           ? Object.keys(incidencia.confirmaciones).filter(k => {
               const ts = incidencia.confirmaciones[k];
@@ -130,11 +135,9 @@ async function processConfirmation(client, message) {
         
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        // Si aún no han confirmado todos, enviar mensaje parcial;
-        // si todos han confirmado, marcar como completada y enviar mensaje final.
-        const mainGroupChatPromise = client.getChatById(config.groupPruebaId);
+        // Si todos los equipos han confirmado, se envía el mensaje final; de lo contrario, el parcial
         if (confirmedTeams.length < totalTeams) {
-          mainGroupChatPromise
+          client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
               const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
                 `${incidencia.descripcion}\n\n` +
@@ -164,21 +167,26 @@ async function processConfirmation(client, message) {
 }
 
 /**
- * generarComentarios - Consulta el historial de feedback y extrae el campo "comentario" para cada equipo.
- * Para cada equipo requerido, busca en feedbackHistory el último registro (confirmación o feedback).
- * Si no se encuentra, muestra "Sin comentarios".
+ * generarComentarios - Recorre el historial de feedback y extrae el campo "comentario"
+ * para cada equipo requerido. Si para un equipo no existe registro, muestra "Sin comentarios".
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
   let comentarios = "";
   let feedbackHistory = [];
   try {
-    feedbackHistory = incidencia.feedbackHistory ? JSON.parse(incidencia.feedbackHistory) : [];
+    if (typeof incidencia.feedbackHistory === "string") {
+      feedbackHistory = JSON.parse(incidencia.feedbackHistory);
+    } else if (Array.isArray(incidencia.feedbackHistory)) {
+      feedbackHistory = incidencia.feedbackHistory;
+    } else {
+      feedbackHistory = [];
+    }
   } catch (e) {
     feedbackHistory = [];
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Verificar que r.equipo exista antes de llamar a toLowerCase()
+    // Verificar que el registro tenga definido "equipo"
     const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
@@ -187,7 +195,7 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
 }
 
 /**
- * enviarConfirmacionGlobal - Envía un mensaje final de confirmación al grupo principal.
+ * enviarConfirmacionGlobal - Envía el mensaje final de confirmación al grupo principal.
  * Se utiliza then/catch para evitar await a nivel de bloque.
  */
 function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
@@ -240,4 +248,5 @@ function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaCon
 
 module.exports = { processConfirmation };
 
-//revision
+
+//error
