@@ -116,40 +116,39 @@ async function processFeedbackResponse(client, message, incidence) {
       usuario: message.author || message.from,
       comentario: message.body,
       fecha: new Date().toISOString(),
-      equipo: "solicitante"
+      equipo: team, 
+      tipo: "feedbackrespuesta"
     };
-    return new Promise((resolve, reject) => {
-      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
-        if (err) {
-          console.error("Error al registrar el feedback:", err);
-          return reject("Error al registrar el feedback.");
-        }
-        console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
-        
-        const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
-                            `${incidence.descripcion}\n\n` +
-                            `${team.toUpperCase()} RESPONDE:\n${message.body}`;
-        
-        client.getChatById(config.groupPruebaId)
-          .then(mainGroupChat => {
-            mainGroupChat.sendMessage(responseMsg)
-              .then(() => {
-                console.log("Mensaje enviado al grupo principal:", responseMsg);
-                resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
-              })
-              .catch(err => {
-                console.error("Error al enviar mensaje al grupo principal:", err);
-                resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
-              });
+    // Ahora llamamos a updateFeedbackHistory para agregar el registro
+    incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+      if (err) {
+        console.error("Error al registrar el feedback:", err);
+        // Puedes manejar el error o rechazar la promesa
+        return;
+      }
+      console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
+      // Luego se envía el mensaje al grupo principal
+      const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
+            `${incidence.descripcion}\n\n` +
+            `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+      client.getChatById(config.groupPruebaId)
+        .then(mainGroupChat => {
+          mainGroupChat.sendMessage(responseMsg)
+            .then(() => {
+              console.log("Mensaje enviado al grupo principal:", responseMsg);
+            })
+            .catch(err => {
+              console.error("Error al enviar mensaje al grupo principal:", err);
+            });
           })
           .catch(err => {
             console.error("Error al obtener chat principal:", err);
-            resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
           });
-      });
-    });
-  }
+        });
+      }
 }
+
+
 /**
  * determineTeamFromGroup - Determina el equipo (it, man, ama) a partir del chat del mensaje.
  */
