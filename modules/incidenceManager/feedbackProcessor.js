@@ -40,24 +40,24 @@ async function detectFeedbackRequest(client, message) {
 
 /**
  * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
- * Si el mensaje citado contiene la estructura:
- *   SOLICITUD DE RETROALIMENTACION PARA LA TAREA {id}:
- * se extrae ese id. Si no, se utiliza la metadata (originalMsgId) del mensaje citado.
+ * Si el mensaje citado proviene del comando /tareaDetalles (contiene "Detalles de la incidencia"),
+ * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
  */
 async function extractFeedbackIdentifier(quotedMessage) {
   const text = quotedMessage.body;
   console.log("Texto del mensaje citado:", text);
   
-  // Limpiar el texto quitando asteriscos al inicio y al final y espacios
-  const cleanedText = text.trim().replace(/^\*+|\*+$/g, "").toLowerCase();
-  // Intentar extraer el id usando el patrón del encabezado
-  const headerMatch = cleanedText.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
-  if (headerMatch) {
-    console.log("Identificador extraído del encabezado:", headerMatch[1]);
-    return headerMatch[1];
+  // Si es un mensaje de detalles generado por /tareaDetalles:
+  if (text.includes("Detalles de la incidencia")) {
+    const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
+    const match = text.match(regex);
+    if (match) {
+      console.log("Identificador numérico encontrado en mensaje de detalles:", match[1]);
+      return match[1];
+    }
   }
   
-  // Si no se encontró, se recurre a la metadata
+  // En otro caso, se utiliza la metadata (originalMsgId) del mensaje citado.
   if (quotedMessage.id && quotedMessage.id._serialized) {
     console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
     return quotedMessage.id._serialized;
@@ -144,8 +144,7 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  // Se verifica que el mensaje citado corresponda a una solicitud de retroalimentación
-  if (!quotedText.toLowerCase().includes("se solicita retroalimentacion para la tarea:")) {
+  if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
@@ -256,12 +255,9 @@ async function detectRetroRequest(client, message) {
 
 /**
  * processRetroRequest - Procesa la solicitud de retroalimentación para la nueva categoría "retro".
- * Verifica que el mensaje cite una incidencia (original o de /tareaDetalles) y envía
- * un mensaje al grupo destino correspondiente con el siguiente formato:
- *
- * *SOLICITUD DE RETROALIMENTACION PARA LA TAREA {id}:*
- * {tarea original}
- * Por favor, proporcione sus comentarios
+ * Verifica que el mensaje cite una incidencia y envía la solicitud de retroalimentación
+ * únicamente a aquellas categorías (equipos) que aún no han marcado la tarea como completada.
+ * Envía un mensaje de confirmación al chat de origen listando a qué equipos se envió.
  */
 async function processRetroRequest(client, message) {
   const chat = await message.getChat();
@@ -291,22 +287,37 @@ async function processRetroRequest(client, message) {
     return;
   }
   // Se asume que la incidencia tiene una o más categorías separadas por comas.
-  let categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
-  let category = categories[0]; // Se toma la primera categoría.
-  const groupDest = config.destinoGrupos[category];
-  if (!groupDest) {
-    await chat.sendMessage("No se encontró grupo asignado para la incidencia.");
-    return;
+  const categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
+  const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+  let gruposEnviados = [];
+  // Enviar la solicitud únicamente a aquellas categorías que aún no han confirmado.
+  for (const cat of categories) {
+    if (incidence.confirmaciones && incidence.confirmaciones[cat]) {
+      console.log(`La categoría ${cat} ya ha confirmado, no se envía retroalimentación.`);
+      continue;
+    }
+    const groupDest = config.destinoGrupos[cat];
+    if (!groupDest) {
+      console.log(`No se encontró grupo asignado para la categoría: ${cat}`);
+      continue;
+    }
+    const retroResponse = `*SOLICITUD DE RETROALIMENTACION PARA LA TAREA ${incidence.id}:*\n` +
+                            `${incidence.descripcion}\n` +
+                            `Por favor, proporcione sus comentarios`;
+    try {
+      const targetChat = await client.getChatById(groupDest);
+      await targetChat.sendMessage(retroResponse);
+      console.log(`Solicitud de retroalimentación enviada al grupo de ${teamNames[cat] || cat.toUpperCase()}.`);
+      gruposEnviados.push(teamNames[cat] || cat.toUpperCase());
+    } catch (error) {
+      console.error(`Error al enviar retroalimentación al grupo de ${teamNames[cat] || cat.toUpperCase()}:`, error);
+    }
   }
-  // Construir el mensaje según el formato solicitado.
-  const retroResponse = `*SOLICITUD DE RETROALIMENTACION PARA LA TAREA ${incidence.id}:*\n` +
-                          `${incidence.descripcion}\n` +
-                          `Por favor, proporcione sus comentarios`;
-  // Enviar el mensaje al grupo destino.
-  const targetChat = await client.getChatById(groupDest);
-  await targetChat.sendMessage(retroResponse);
-  // Confirmar en el chat actual.
-  await chat.sendMessage("Solicitud de retroalimentación procesada correctamente.");
+  if (gruposEnviados.length > 0) {
+    await chat.sendMessage(`Solicitud de retroalimentación procesada correctamente para: *${gruposEnviados.join(", ")}*`);
+  } else {
+    await chat.sendMessage("No se envió solicitud de retroalimentación, ya que todas las categorías han confirmado.");
+  }
 }
 
 module.exports = { 
@@ -320,4 +331,4 @@ module.exports = {
   processRetroRequest
 };
 
-//AYUDA AAAH
+//nuevo modulo
