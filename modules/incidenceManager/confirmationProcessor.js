@@ -5,13 +5,11 @@ const moment = require('moment-timezone');
 /**
  * Procesa un mensaje de confirmación recibido en los grupos destino.
  * Realiza:
- *  - Validación del mensaje citado y extracción del ID de incidencia, usando dos patrones:
- *      • Si el mensaje citado comienza con "solicitud de retroalimentacion para la tarea",
- *        extrae el ID usando ese formato.
- *      • De lo contrario, utiliza el patrón tradicional: "(ID: {número})" o "ID: {número}".
+ *  - Validación del mensaje citado y extracción del ID de la incidencia, usando dos patrones:
+ *      • Si el mensaje citado comienza con "solicitud de retroalimentacion para la tarea", se extrae el ID de ese formato.
+ *      • De lo contrario, se utiliza el patrón tradicional: "(ID: {número})" o "ID: {número}".
  *  - Detección de palabras/frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la BD (confirmaciones) y registro del comentario
- *    en feedbackHistory.
+ *  - Actualización del objeto incidencia en la BD (confirmaciones) y registro del comentario en feedbackHistory.
  *  - Envío de un mensaje parcial o final al grupo principal.
  */
 async function processConfirmation(client, message) {
@@ -24,32 +22,29 @@ async function processConfirmation(client, message) {
     return;
   }
   const quotedMessage = await message.getQuotedMessage();
-  const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
+  const originalText = quotedMessage.body;
+  console.log("Texto del mensaje citado:", originalText);
 
-  // Se aceptan mensajes que comiencen con ciertos patrones
-  if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
-        cleanedQuotedText.startsWith("nueva tarea recibida") ||
-        cleanedQuotedText.startsWith("recordatorio: incidencia") ||
-        cleanedQuotedText.startsWith("solicitud de retroalimentacion para la tarea"))) {
-    console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
-    return;
-  }
-  
-  // Extraer el ID: si el mensaje citado comienza con "solicitud de retroalimentacion para la tarea"
-  // se usa ese patrón; de lo contrario, se usa el tradicional.
   let idMatch;
-  const lowerCited = quotedMessage.body.toLowerCase();
-  if (lowerCited.startsWith("solicitud de retroalimentacion para la tarea")) {
-    idMatch = quotedMessage.body.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
-  } else {
-    idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
+  // Primero, intentar extraer el ID usando un patrón específico que recomendemos incluir en la solicitud (por ejemplo, [ID:2])
+  idMatch = originalText.match(/\[ID:\s*(\d+)\]/i);
+  if (!idMatch) {
+    // Si el mensaje citado comienza con "solicitud de retroalimentacion para la tarea", usar ese patrón
+    const lowerCited = originalText.toLowerCase();
+    if (lowerCited.startsWith("solicitud de retroalimentacion para la tarea")) {
+      idMatch = originalText.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
+    }
+  }
+  // Si aún no se encontró, intentar el patrón tradicional
+  if (!idMatch) {
+    idMatch = originalText.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
   }
   if (!idMatch) {
     console.log("No se encontró el ID en el mensaje citado. No se actualizará el estado.");
     return;
   }
   const incidenciaId = idMatch[1] || idMatch[2];
-
+  
   const responseText = message.body.toLowerCase();
   const responseWords = new Set(responseText.split(/\s+/));
   const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
@@ -80,14 +75,14 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
-    // Actualizar confirmaciones: guardar la fecha para el equipo que confirma
+    // Actualizar confirmaciones: se guarda la fecha para el equipo que confirma
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
     } else {
       incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
     }
     
-    // Registrar en feedbackHistory el mensaje de confirmación (se envía como objeto)
+    // Registrar en feedbackHistory el mensaje de confirmación (como objeto)
     let history = [];
     try {
       if (typeof incidencia.feedbackHistory === "string") {
@@ -140,7 +135,6 @@ async function processConfirmation(client, message) {
         
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        // Si no han confirmado todos, se envía el mensaje parcial; si sí, se marca como completada y se envía el mensaje final.
         if (confirmedTeams.length < totalTeams) {
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
@@ -251,5 +245,3 @@ function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaCon
 }
 
 module.exports = { processConfirmation };
-
-//hola
