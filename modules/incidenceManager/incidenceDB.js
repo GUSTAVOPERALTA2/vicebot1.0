@@ -183,6 +183,16 @@ function updateConfirmaciones(incidenciaId, confirmaciones, callback) {
 }
 
 function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
+  // Asegurarse de que newFeedback sea un objeto
+  let feedbackObj = newFeedback;
+  if (typeof newFeedback === "string") {
+    try {
+      feedbackObj = JSON.parse(newFeedback);
+    } catch (e) {
+      console.error("Error al parsear newFeedback:", e);
+      // Si falla, se deja como cadena (lo ideal es que no ocurra)
+    }
+  }
   // Primero, obtener el historial actual
   const sqlSelect = "SELECT feedbackHistory FROM incidencias WHERE id = ?";
   db.get(sqlSelect, [incidenciaId], (err, row) => {
@@ -191,11 +201,11 @@ function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
     if (row && row.feedbackHistory) {
       try {
         history = JSON.parse(row.feedbackHistory);
-      } catch(e) {
+      } catch (e) {
         console.error("Error al parsear feedbackHistory:", e);
       }
     }
-    history.push(newFeedback);
+    history.push(feedbackObj);
     const sqlUpdate = "UPDATE incidencias SET feedbackHistory = ? WHERE id = ?";
     db.run(sqlUpdate, [JSON.stringify(history), incidenciaId], function(err) {
       callback(err);

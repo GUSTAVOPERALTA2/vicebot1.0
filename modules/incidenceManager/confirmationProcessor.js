@@ -21,11 +21,10 @@ async function processConfirmation(client, message) {
     return;
   }
   const quotedMessage = await message.getQuotedMessage();
-  
-  // Limpiar el texto citado: quitar asteriscos y espacios iniciales
+  // Convertir el texto citado a minúsculas y quitar asteriscos y espacios iniciales
   const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
-  
-  // Se aceptan mensajes que inicien con alguno de estos patrones
+
+  // Se aceptan mensajes que comiencen con estos patrones
   if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
         cleanedQuotedText.startsWith("nueva tarea recibida") ||
         cleanedQuotedText.startsWith("recordatorio: incidencia") ||
@@ -34,7 +33,7 @@ async function processConfirmation(client, message) {
     return;
   }
   
-  // Extraer el ID: se intenta primero con el patrón de solicitud de retroalimentación; si no, con el tradicional
+  // Se intenta extraer el ID con el patrón de solicitud de retroalimentación; si no, se usa el tradicional
   let idMatch = quotedMessage.body.match(/SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i);
   if (!idMatch) {
     idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
@@ -65,7 +64,7 @@ async function processConfirmation(client, message) {
       return;
     }
     
-    // Determinar el equipo que responde según el id del chat
+    // Determinar el equipo que responde según el ID del chat
     let categoriaConfirmada = "";
     if (chatId === config.groupBotDestinoId) {
       categoriaConfirmada = "it";
@@ -75,14 +74,14 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
-    // Actualizar confirmaciones: guardar la fecha para el equipo que confirma
+    // Actualizar confirmaciones: se guarda la fecha para el equipo que confirma
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
     } else {
       incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
     }
     
-    // Registrar en feedbackHistory el mensaje de confirmación
+    // Registrar el feedback de confirmación (como objeto) en feedbackHistory
     let history = [];
     try {
       if (typeof incidencia.feedbackHistory === "string") {
@@ -95,15 +94,16 @@ async function processConfirmation(client, message) {
     } catch (e) {
       history = [];
     }
-    history.push({
+    const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
       fecha: new Date().toISOString(),
       equipo: categoriaConfirmada,
       tipo: "confirmacion"
-    });
+    };
+    history.push(feedbackRecord);
     
-    incidenceDB.updateFeedbackHistory(incidenciaId, JSON.stringify(history), (err) => {
+    incidenceDB.updateFeedbackHistory(incidenciaId, history, (err) => {
       if (err) {
         console.error("Error al actualizar feedbackHistory:", err);
       }
@@ -116,9 +116,10 @@ async function processConfirmation(client, message) {
         console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
         
         const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+        // Se obtienen las categorías requeridas a partir de incidencia.categoria (convertidas a minúsculas)
         const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
         // Se consideran confirmados aquellos cuyo valor sea una fecha válida
-        const confirmedTeams = incidencia.confirmaciones 
+        const confirmedTeams = incidencia.confirmaciones
           ? Object.keys(incidencia.confirmaciones).filter(k => {
               const ts = incidencia.confirmaciones[k];
               return ts && !isNaN(Date.parse(ts));
@@ -135,7 +136,7 @@ async function processConfirmation(client, message) {
         
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        // Si todos los equipos han confirmado, se envía el mensaje final; de lo contrario, el parcial
+        // Si aún faltan equipos por confirmar, se envía mensaje parcial; si todos han confirmado, se envía el mensaje final.
         if (confirmedTeams.length < totalTeams) {
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
@@ -167,8 +168,8 @@ async function processConfirmation(client, message) {
 }
 
 /**
- * generarComentarios - Recorre el historial de feedback y extrae el campo "comentario"
- * para cada equipo requerido. Si para un equipo no existe registro, muestra "Sin comentarios".
+ * generarComentarios - Recorre el historial de feedback y extrae el campo "comentario" para cada equipo requerido.
+ * Si para un equipo no se encuentra registro, muestra "Sin comentarios".
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
   let comentarios = "";
@@ -186,7 +187,6 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Verificar que el registro tenga definido "equipo"
     const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
@@ -196,7 +196,7 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
 
 /**
  * enviarConfirmacionGlobal - Envía el mensaje final de confirmación al grupo principal.
- * Se utiliza then/catch para evitar await a nivel de bloque.
+ * Se usa then/catch para evitar await a nivel de bloque.
  */
 function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
   let teamNames = {};
@@ -248,5 +248,4 @@ function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaCon
 
 module.exports = { processConfirmation };
 
-
-//error
+//nuevo modulo
