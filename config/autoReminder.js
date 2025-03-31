@@ -20,7 +20,8 @@ function calcularTiempoSinRespuesta(fechaCreacion) {
 /**
  * checkPendingIncidences - Revisa las incidencias pendientes y envía recordatorios individuales.
  * Se ejecuta solo en horario laboral (entre 8 y 21, hora de "America/Hermosillo").
- * Si una incidencia involucra múltiples categorías, se envía recordatorio a cada grupo asignado.
+ * Si una incidencia involucra múltiples categorías, se enviará el recordatorio únicamente a los equipos
+ * que aún no han confirmado.
  *
  * @param {Object} client - Cliente de WhatsApp.
  * @param {boolean} initialRun - Si true, el umbral es 0h; si false, es 1h.
@@ -53,7 +54,17 @@ function checkPendingIncidences(client, initialRun = false) {
       return;
     }
     rows.forEach(row => {
-      // Dividir la cadena de categorías y enviar recordatorio a cada una.
+      // Se parsea el campo confirmaciones para saber qué equipos ya han confirmado (si existe)
+      let confirmaciones = {};
+      if (row.confirmaciones) {
+        try {
+          confirmaciones = JSON.parse(row.confirmaciones);
+        } catch (err) {
+          console.error("Error al parsear confirmaciones:", err);
+        }
+      }
+      
+      // Dividir la cadena de categorías y enviar recordatorio únicamente a los equipos faltantes.
       const categorias = row.categoria.split(',').map(c => c.trim().toLowerCase());
       categorias.forEach(categoria => {
         const groupId = config.destinoGrupos[categoria];
@@ -61,6 +72,12 @@ function checkPendingIncidences(client, initialRun = false) {
           console.warn(`No hay grupo asignado para la categoría: ${categoria}`);
           return;
         }
+        // Si ya hay confirmación para esa categoría, no se envía recordatorio
+        if (confirmaciones[categoria]) {
+          console.log(`La incidencia ${row.id} ya tiene confirmación para la categoría ${categoria}. No se enviará recordatorio a este equipo.`);
+          return;
+        }
+        
         const tiempoSinRespuesta = calcularTiempoSinRespuesta(row.fechaCreacion);
         const fechaFormateada = moment(row.fechaCreacion).format("DD/MM/YYYY hh:mm a");
         const msg = `*RECORDATORIO: TAREA INCOMPLETA*\n\n` +
@@ -68,7 +85,7 @@ function checkPendingIncidences(client, initialRun = false) {
                     `Fecha de creación: ${fechaFormateada}\n` +
                     `Tiempo sin respuesta: ${tiempoSinRespuesta}\n` +
                     `ID: ${row.id}`;
-        console.log(`Enviando recordatorio para incidencia ${row.id} a grupo ${groupId}`);
+        console.log(`Enviando recordatorio para incidencia ${row.id} a grupo ${groupId} (categoría ${categoria})`);
         client.getChatById(groupId)
           .then(chat => {
             chat.sendMessage(msg);
@@ -95,3 +112,5 @@ function startReminder(client) {
 }
 
 module.exports = { startReminder };
+
+//nuevo
