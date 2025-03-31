@@ -144,7 +144,9 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
+  // Se normaliza el texto a minúsculas y se verifica que contenga el patrón esperado
+  const normalizedQuotedText = quotedText.toLowerCase();
+  if (!normalizedQuotedText.includes("solicitud de retroalimentacion para la tarea")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
