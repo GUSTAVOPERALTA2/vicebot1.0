@@ -1,4 +1,3 @@
-// vicebot/modules/incidenceManager/incidenceDB.js
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 let db;
@@ -182,18 +181,14 @@ function updateConfirmaciones(incidenciaId, confirmaciones, callback) {
   });
 }
 
+/**
+ * updateFeedbackHistory:
+ * - Se obtiene el historial actual.
+ * - Si newFeedback es un arreglo, se reemplaza el historial completo.
+ * - Si newFeedback es un objeto individual, se agrega al historial.
+ * - Se actualiza la BD con JSON.stringify(history) una única vez.
+ */
 function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
-  // Asegurarse de que newFeedback sea un objeto
-  let feedbackObj = newFeedback;
-  if (typeof newFeedback === "string") {
-    try {
-      feedbackObj = JSON.parse(newFeedback);
-    } catch (e) {
-      console.error("Error al parsear newFeedback:", e);
-      // Si falla, se deja como cadena (lo ideal es que no ocurra)
-    }
-  }
-  // Primero, obtener el historial actual
   const sqlSelect = "SELECT feedbackHistory FROM incidencias WHERE id = ?";
   db.get(sqlSelect, [incidenciaId], (err, row) => {
     if (err) return callback(err);
@@ -205,7 +200,11 @@ function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
         console.error("Error al parsear feedbackHistory:", e);
       }
     }
-    history.push(feedbackObj);
+    if (Array.isArray(newFeedback)) {
+      history = newFeedback;
+    } else {
+      history.push(newFeedback);
+    }
     const sqlUpdate = "UPDATE incidencias SET feedbackHistory = ? WHERE id = ?";
     db.run(sqlUpdate, [JSON.stringify(history), incidenciaId], function(err) {
       callback(err);
