@@ -2,16 +2,6 @@ const config = require('../../config/config');
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment-timezone');
 
-/**
- * Procesa un mensaje de confirmación recibido en los grupos destino.
- * Realiza:
- *  - Validación del mensaje citado y extracción del ID de la incidencia.
- *    Ahora se acepta que el mensaje citado inicie con "SOLICITUD DE RETROALIMENTACION PARA LA TAREA"
- *    (incluso si está en negritas o con caracteres adicionales).
- *  - Detección de palabras/frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la BD (de forma parcial o final).
- *  - Envío de un mensaje parcial o final al grupo principal.
- */
 async function processConfirmation(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
@@ -23,29 +13,26 @@ async function processConfirmation(client, message) {
   }
   const quotedMessage = await message.getQuotedMessage();
 
-  // Limpiar el texto citado para quitar asteriscos y espacios iniciales, y pasarlo a minúsculas
-  const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
+  // Limpieza del texto citado: se eliminan asteriscos de inicio y fin, y se pasa a minúsculas
+  let cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+|\*+$/g, "").toLowerCase();
+  console.log("Texto citado limpio:", cleanedQuotedText);
 
-  // Se acepta si el texto citado comienza con alguno de los patrones:
-  // - recordatorio: tarea incompleta
-  // - nueva tarea recibida
-  // - recordatorio: incidencia
-  // - solicitud de retroalimentacion para la tarea
+  // Se definen los patrones válidos para considerar el mensaje citado como una solicitud de retroalimentación
   const validPatterns = [
-    "recordatorio: tarea incompleta",
-    "nueva tarea recibida",
-    "recordatorio: incidencia",
-    "solicitud de retroalimentacion para la tarea"
+    /^solicitud de retroalimentacion para la tarea\s*\d+:/,  // Ej: "solicitud de retroalimentacion para la tarea 2:"
+    /^recordatorio: tarea incompleta/,
+    /^nueva tarea recibida/,
+    /^recordatorio: incidencia/
   ];
-  const matchesPattern = validPatterns.some(pattern => cleanedQuotedText.startsWith(pattern));
-  if (!matchesPattern) {
+
+  const isValid = validPatterns.some(pattern => pattern.test(cleanedQuotedText));
+  if (!isValid) {
     console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
     return;
   }
 
-  // Intentar extraer el ID usando el patrón de solicitud de retroalimentación.
-  // Se permite que pueda venir con asteriscos al inicio.
-  let idMatch = quotedMessage.body.match(/\*?SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i);
+  // Intentar extraer el ID usando el patrón de solicitud de retroalimentación
+  let idMatch = cleanedQuotedText.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
   // Si no se encuentra, se usa el patrón tradicional que busca "(ID: X)" o "ID: X"
   if (!idMatch) {
     idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
@@ -55,8 +42,7 @@ async function processConfirmation(client, message) {
     return;
   }
   const incidenciaId = idMatch[1] || idMatch[2];
-
-  // Verificar si el mensaje de respuesta contiene palabras o frases de confirmación
+  
   const responseText = message.body.toLowerCase();
   const responseWords = new Set(responseText.split(/\s+/));
   const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
@@ -71,7 +57,6 @@ async function processConfirmation(client, message) {
     return;
   }
   
-  // Obtener la incidencia de la BD
   incidenceDB.getIncidenciaById(incidenciaId, async (err, incidencia) => {
     if (err || !incidencia) {
       console.error("Error al obtener detalles de la incidencia para confirmación.");
@@ -101,9 +86,6 @@ async function processConfirmation(client, message) {
           const totalTeams = Object.keys(incidencia.confirmaciones).length;
           if (fase < totalTeams) {
             const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA DE LLAVES" };
-            const confirmedTeams = Object.entries(incidencia.confirmaciones)
-              .filter(([cat, val]) => val !== false)
-              .map(([cat]) => teamNames[cat] || cat.toUpperCase());
             const missingTeams = Object.entries(incidencia.confirmaciones)
               .filter(([cat, val]) => val === false)
               .map(([cat]) => teamNames[cat] || cat.toUpperCase());
