@@ -21,10 +21,10 @@ async function processConfirmation(client, message) {
     return;
   }
   const quotedMessage = await message.getQuotedMessage();
-  // Convertir el texto citado a minúsculas y quitar asteriscos y espacios iniciales
+  // Convertir el texto citado a minúsculas
   const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
 
-  // Se aceptan mensajes que comiencen con estos patrones
+  // Se aceptan mensajes que comiencen con estos patrones:
   if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
         cleanedQuotedText.startsWith("nueva tarea recibida") ||
         cleanedQuotedText.startsWith("recordatorio: incidencia") ||
@@ -33,11 +33,8 @@ async function processConfirmation(client, message) {
     return;
   }
   
-  // Se intenta extraer el ID con el patrón de solicitud de retroalimentación; si no, se usa el tradicional
-  let idMatch = quotedMessage.body.match(/SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i);
-  if (!idMatch) {
-    idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
-  }
+  // Extraer el ID: se usa el patrón tradicional (p.ej., "(ID: 7)" o "ID: 7")
+  const idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
   if (!idMatch) {
     console.log("No se encontró el ID en el mensaje citado. No se actualizará el estado.");
     return;
@@ -64,7 +61,7 @@ async function processConfirmation(client, message) {
       return;
     }
     
-    // Determinar el equipo que responde según el ID del chat
+    // Determinar el equipo que responde según el chat origen
     let categoriaConfirmada = "";
     if (chatId === config.groupBotDestinoId) {
       categoriaConfirmada = "it";
@@ -81,7 +78,7 @@ async function processConfirmation(client, message) {
       incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
     }
     
-    // Registrar el feedback de confirmación (como objeto) en feedbackHistory
+    // Registrar en feedbackHistory el mensaje de confirmación (se envía como objeto)
     let history = [];
     try {
       if (typeof incidencia.feedbackHistory === "string") {
@@ -116,9 +113,8 @@ async function processConfirmation(client, message) {
         console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
         
         const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
-        // Se obtienen las categorías requeridas a partir de incidencia.categoria (convertidas a minúsculas)
         const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
-        // Se consideran confirmados aquellos cuyo valor sea una fecha válida
+        // Se consideran confirmados aquellos cuyo valor es una fecha válida
         const confirmedTeams = incidencia.confirmaciones
           ? Object.keys(incidencia.confirmaciones).filter(k => {
               const ts = incidencia.confirmaciones[k];
@@ -136,7 +132,7 @@ async function processConfirmation(client, message) {
         
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
-        // Si aún faltan equipos por confirmar, se envía mensaje parcial; si todos han confirmado, se envía el mensaje final.
+        // Construir el mensaje parcial si aún faltan equipos por confirmar
         if (confirmedTeams.length < totalTeams) {
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
@@ -152,6 +148,7 @@ async function processConfirmation(client, message) {
             })
             .catch(e => console.error("Error al obtener el chat principal:", e));
         } else {
+          // Si todos han confirmado, se actualiza el estado a "completada" y se envía el mensaje final
           incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
             if (err) {
               console.error("Error al actualizar la incidencia:", err);
@@ -169,7 +166,7 @@ async function processConfirmation(client, message) {
 
 /**
  * generarComentarios - Recorre el historial de feedback y extrae el campo "comentario" para cada equipo requerido.
- * Si para un equipo no se encuentra registro, muestra "Sin comentarios".
+ * Si no se encuentra registro para un equipo, muestra "Sin comentarios".
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
   let comentarios = "";
@@ -196,7 +193,7 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
 
 /**
  * enviarConfirmacionGlobal - Envía el mensaje final de confirmación al grupo principal.
- * Se usa then/catch para evitar await a nivel de bloque.
+ * Se utiliza then/catch para evitar await a nivel de bloque.
  */
 function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
   let teamNames = {};
@@ -248,4 +245,4 @@ function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaCon
 
 module.exports = { processConfirmation };
 
-//nuevo modulo
+//nuevo
