@@ -219,8 +219,9 @@ async function processTeamFeedbackResponse(client, message) {
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
-  const match = normalizedQuotedText.match(regex);
+  // Extraemos el ID usando el patrón que se usa en confirmationProcessor
+  const regex = /ID:\s*(\d+)/i;
+  const match = quotedText.match(regex);
   if (!match) {
     console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
     return "No se pudo extraer el ID de la incidencia del mensaje citado.";
@@ -240,7 +241,6 @@ async function processTeamFeedbackResponse(client, message) {
   }
   
   const team = await determineTeamFromGroup(message);
-  
   const responseType = detectResponseType(client, message.body);
   
   // Si se detecta confirmación, delegamos a processConfirmation
@@ -248,31 +248,48 @@ async function processTeamFeedbackResponse(client, message) {
     return processConfirmation(client, message);
   }
   
-  // Si no, se asume feedback
-  const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
-                      `${incidence.descripcion}\n\n` +
-                      `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+  // Si no, se asume feedback: se crea el registro de feedback con el comentario completo
+  const feedbackRecord = {
+    usuario: message.author || message.from,
+    comentario: message.body,
+    fecha: new Date().toISOString(),
+    equipo: team,
+    tipo: "feedbackrespuesta"
+  };
   
+  // Se almacena el feedback en la base de datos
   return new Promise((resolve, reject) => {
-    client.getChatById(config.groupPruebaId)
-      .then(mainGroupChat => {
-        mainGroupChat.sendMessage(responseMsg)
-          .then(() => {
-            console.log("Mensaje enviado al grupo principal:", responseMsg);
-            resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
-          })
-          .catch(err => {
-            console.error("Error al enviar mensaje al grupo principal:", err);
-            resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
-          });
-      })
-      .catch(err => {
-        console.error("Error al obtener chat principal:", err);
-        resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
-      });
+    incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+      if (err) {
+        console.error("Error al registrar el feedback:", err);
+        return reject("Error al registrar el feedback.");
+      }
+      console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
+      
+      // Luego se envía el mensaje formateado al grupo principal
+      const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
+                          `${incidence.descripcion}\n\n` +
+                          `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+      
+      client.getChatById(config.groupPruebaId)
+        .then(mainGroupChat => {
+          mainGroupChat.sendMessage(responseMsg)
+            .then(() => {
+              console.log("Mensaje enviado al grupo principal:", responseMsg);
+              resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
+            })
+            .catch(err => {
+              console.error("Error al enviar mensaje al grupo principal:", err);
+              resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
+            });
+        })
+        .catch(err => {
+          console.error("Error al obtener chat principal:", err);
+          resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
+        });
+    });
   });
 }
-
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia y construye un mensaje de retroalimentación.
  */
