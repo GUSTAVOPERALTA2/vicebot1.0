@@ -220,12 +220,13 @@ async function processTeamFeedbackResponse(client, message) {
   }
   
   // Extraemos el ID usando el patrón que se usa en confirmationProcessor
-  const regex = /ID:\s*(\d+)/i;
-  const match = quotedText.match(regex);
+  const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
+  const match = normalizedQuotedText.match(regex);
   if (!match) {
     console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
     return "No se pudo extraer el ID de la incidencia del mensaje citado.";
   }
+  
   const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
   
