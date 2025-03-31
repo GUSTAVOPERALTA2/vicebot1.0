@@ -153,6 +153,14 @@ async function determineTeamFromGroup(message) {
 /**
  * processTeamFeedbackResponse - Procesa la respuesta de retroalimentación enviada
  * en los grupos destino (por el equipo) y envía al grupo principal la respuesta.
+ * 
+ * Si la respuesta es de feedback (no de confirmación), se envía el mensaje con el formato:
+ * 
+ * RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
+ * {incidencia.descripcion}
+ * 
+ * EL EQUIPO RESPONDE:
+ * {respuesta del equipo}
  */
 async function processTeamFeedbackResponse(client, message) {
   if (!message.hasQuotedMsg) {
@@ -191,7 +199,7 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
-  // Obtenemos el equipo del grupo destino de donde se responde
+  // Obtenemos el equipo a partir del grupo destino de donde se responde
   const team = await determineTeamFromGroup(message);
   
   const feedbackRecord = {
@@ -209,10 +217,23 @@ async function processTeamFeedbackResponse(client, message) {
       }
       console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
       
-      // Enviar mensaje al grupo principal con la respuesta del equipo
+      // Determinar el tipo de respuesta para enviar el mensaje formateado al grupo principal
+      const responseType = detectResponseType(client, message.body);
+      let responseMsg = "";
+      
+      if (responseType === "feedbackrespuesta") {
+        responseMsg = `RESPUESTA DE RETROALIMENTACION, EQUIPO ${team.toUpperCase()}\n` +
+                      `${incidence.descripcion}\n\n` +
+                      `EL EQUIPO RESPONDE:\n${message.body}`;
+      } else {
+        // Si fuera confirmación u otro, se podría ajustar el formato según corresponda.
+        responseMsg = `*RESPUESTA DE RETROALIMENTACION*\n${incidence.descripcion}\n\n` +
+                      `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+      }
+      
+      // Enviar el mensaje al grupo principal
       client.getChatById(config.groupPruebaId)
         .then(mainGroupChat => {
-          const responseMsg = `*RESPUESTA DE RETROALIMENTACION*\n${incidence.descripcion}\n\n${team.toUpperCase()} RESPONDE:\n${message.body}`;
           mainGroupChat.sendMessage(responseMsg)
             .then(() => {
               console.log("Mensaje de respuesta de retroalimentacion enviado al grupo principal.");
@@ -322,7 +343,7 @@ async function processRetroRequest(client, message) {
   let gruposEnviados = [];
   // Enviar la solicitud únicamente a aquellas categorías que aún no han confirmado.
   for (const cat of categories) {
-    if (incidence.confirmaciones && incidence.confirmaciones[cat]) {
+    if (incidence.confirmaciones && incidencia.confirmaciones[cat]) {
       console.log(`La categoría ${cat} ya ha confirmado, no se envía retroalimentación.`);
       continue;
     }
@@ -362,4 +383,4 @@ module.exports = {
 };
 
 
-//equipo desconocido arreglado
+//nuevo feed

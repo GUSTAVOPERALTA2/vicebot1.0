@@ -3,22 +3,12 @@ const incidenceDB = require('./incidenceDB');
 const moment = require('moment-timezone');
 
 /**
- * Procesa un mensaje de confirmación recibido en los grupos destino.
+ * processConfirmation - Procesa un mensaje de confirmación recibido en los grupos destino.
  * Realiza:
  *  - Validación del mensaje citado y extracción del ID de la incidencia.
- *    Se limpia el texto citado para quitar asteriscos y espacios iniciales, 
- *    y se acepta si comienza con alguno de estos patrones:
- *      "recordatorio: tarea incompleta*",
- *      "nueva tarea recibida",
- *      "recordatorio: incidencia",
- *      "solicitud de retroalimentacion para la tarea".
- *    Se intenta extraer el ID usando primero el patrón:
- *      /SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i
- *    y, si no se encuentra, se usa el patrón tradicional:
- *      /\(ID:\s*(\d+)\)|ID:\s*(\d+)/.
  *  - Detección de palabras/frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la BD, tanto de las confirmaciones como del historial de feedback.
- *  - Envío de un mensaje parcial o final al grupo principal.
+ *  - Actualización del objeto incidencia en la BD (confirmaciones y feedbackHistory).
+ *  - Envío de un mensaje parcial o final al grupo principal según si todos los equipos han confirmado.
  */
 async function processConfirmation(client, message) {
   const chat = await message.getChat();
@@ -31,10 +21,10 @@ async function processConfirmation(client, message) {
   }
   const quotedMessage = await message.getQuotedMessage();
   
-  // Limpiar el texto citado para quitar asteriscos y espacios iniciales
+  // Limpiar el texto citado para quitar asteriscos y espacios iniciales, y pasarlo a minúsculas
   const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
   
-  // Se aceptan mensajes que inicien con cualquiera de estos patrones:
+  // Se aceptan mensajes que inicien con alguno de estos patrones:
   if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
         cleanedQuotedText.startsWith("nueva tarea recibida") ||
         cleanedQuotedText.startsWith("recordatorio: incidencia") ||
@@ -43,8 +33,8 @@ async function processConfirmation(client, message) {
     return;
   }
   
-  // Intentar extraer el ID usando el patrón de solicitud de retroalimentación
-  let idMatch = quotedMessage.body.match(/SOLICITUD DE RETROALIMENTACION PARA LA TAREA\s*(\d+):/i);
+  // Intentar extraer el ID usando primero el patrón de solicitud de retroalimentación
+  let idMatch = quotedMessage.body.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
   // Si no se encuentra, usar el patrón tradicional
   if (!idMatch) {
     idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
@@ -75,7 +65,7 @@ async function processConfirmation(client, message) {
       return;
     }
     
-    // Determinar el equipo que responde según el id del chat
+    // Determinar el equipo que responde según el ID del chat destino
     let categoriaConfirmada = "";
     if (chatId === config.groupBotDestinoId) {
       categoriaConfirmada = "it";
@@ -85,14 +75,14 @@ async function processConfirmation(client, message) {
       categoriaConfirmada = "ama";
     }
     
-    // Actualizar confirmaciones
+    // Actualizar confirmaciones en la incidencia
     if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
       incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
     } else {
       incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
     }
     
-    // Registrar en feedbackHistory el comentario de confirmación
+    // Registrar en el historial de feedback el comentario de confirmación
     let history = [];
     try {
       if (typeof incidencia.feedbackHistory === "string") {
@@ -122,7 +112,7 @@ async function processConfirmation(client, message) {
       if (err) {
         console.error("Error al actualizar confirmaciones:", err);
       } else {
-        console.log(`Confirmación para categoría ${categoriaConfirmada} actualizada para incidencia ${incidenciaId}.`);
+        console.log(`Confirmación para la categoría ${categoriaConfirmada} actualizada para la incidencia ${incidenciaId}.`);
         const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
         const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
         const confirmedTeams = incidencia.confirmaciones
@@ -136,21 +126,23 @@ async function processConfirmation(client, message) {
           .filter(team => !confirmedTeams.includes(team))
           .map(team => teamNames[team] || team.toUpperCase());
         
+        // Calcular el tiempo de respuesta desde la creación de la incidencia
         const responseTime = moment().diff(moment(incidencia.fechaCreacion));
         const diffDuration = moment.duration(responseTime);
         const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
         
-        // Generar la sección de comentarios consultando el historial de feedback
+        // Generar la sección de comentarios a partir del historial de feedback
         const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
         
+        // Si no todos los equipos han confirmado, se envía un mensaje parcial (evento de fases)
         if (confirmedTeams.length < totalTeams) {
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
-              const partialMessage = `*ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}*\n` +
+              const partialMessage = `ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}\n` +
                 `${incidencia.descripcion}\n\n` +
                 `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
                 `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
-                `Comentarios:\n${comentarios}\n` +
+                `Comentarios:\n${comentarios}` +
                 `⏱️Tiempo de respuesta: ${diffResponseStr}`;
               mainGroupChat.sendMessage(partialMessage)
                 .then(() => console.log("Mensaje de confirmación parcial enviado:", partialMessage))
@@ -158,6 +150,7 @@ async function processConfirmation(client, message) {
             })
             .catch(e => console.error("Error al obtener el chat principal:", e));
         } else {
+          // Si todos los equipos han confirmado, se marca la incidencia como COMPLETADA y se envía el mensaje final
           incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
             if (err) {
               console.error("Error al actualizar la incidencia:", err);
@@ -174,8 +167,8 @@ async function processConfirmation(client, message) {
 }
 
 /**
- * generarComentarios - Recorre el historial de feedback y extrae el campo "comentario"
- * para cada equipo requerido. Si no existe registro para un equipo, muestra "Sin comentarios".
+ * generarComentarios - Recorre el historial de feedback y extrae el comentario
+ * correspondiente para cada equipo requerido.
  */
 function generarComentarios(incidencia, requiredTeams, teamNames) {
   let comentarios = "";
@@ -191,7 +184,7 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Se filtra por feedback que contenga el campo "equipo"
+    // Buscar el último feedback para el equipo
     const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
@@ -255,4 +248,4 @@ async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, catego
 
 module.exports = { processConfirmation };
 
-//ya?
+//nuevo confirmation
