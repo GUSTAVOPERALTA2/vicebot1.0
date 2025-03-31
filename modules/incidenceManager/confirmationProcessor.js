@@ -1,190 +1,170 @@
-const config = require('../../config/config');
 const incidenceDB = require('./incidenceDB');
-const moment = require('moment-timezone');
+const moment = require('moment');
+const config = require('../../config/config');
+// Importamos processConfirmation para delegar el procesamiento de confirmaciones
+const { processConfirmation } = require('./confirmationProcessor');
 
 /**
- * processConfirmation - Procesa un mensaje de confirmación recibido en los grupos destino.
- * Realiza:
- *  - Validación del mensaje citado y extracción del ID de la incidencia.
- *  - Detección de palabras/frases de confirmación usando client.keywordsData.
- *  - Actualización del objeto incidencia en la BD (confirmaciones y feedbackHistory).
- *  - Envío de un mensaje parcial o final al grupo principal según si todos los equipos han confirmado.
+ * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
+ * contiene palabras o frases indicativas de solicitar retroalimentación.
  */
-async function processConfirmation(client, message) {
-  const chat = await message.getChat();
-  const chatId = chat.id._serialized;
-  console.log("Procesando mensaje de confirmación en grupo destino.");
-
+async function detectFeedbackRequest(client, message) {
   if (!message.hasQuotedMsg) {
-    console.log("El mensaje no cita ningún mensaje. Se ignora.");
-    return;
-  }
-  const quotedMessage = await message.getQuotedMessage();
-  
-  // Limpiar el texto citado para quitar asteriscos y espacios iniciales, y pasarlo a minúsculas
-  const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
-  
-  // Se aceptan mensajes que inicien con alguno de estos patrones:
-  if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
-        cleanedQuotedText.startsWith("nueva tarea recibida") ||
-        cleanedQuotedText.startsWith("recordatorio: incidencia") ||
-        cleanedQuotedText.startsWith("solicitud de retroalimentacion para la tarea"))) {
-    console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
-    return;
+    console.log("El mensaje no cita ningún mensaje.");
+    return false;
   }
   
-  // Intentar extraer el ID usando primero el patrón de solicitud de retroalimentación
-  let idMatch = quotedMessage.body.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
-  // Si no se encuentra, usar el patrón tradicional
-  if (!idMatch) {
-    idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
-  }
-  if (!idMatch) {
-    console.log("No se encontró el ID en el mensaje citado. No se actualizará el estado.");
-    return;
-  }
-  const incidenciaId = idMatch[1] || idMatch[2];
-
   const responseText = message.body.toLowerCase();
-  const responseWords = new Set(responseText.split(/\s+/));
-  const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
-    responseText.includes(phrase.toLowerCase())
-  );
-  const confirmWordFound = client.keywordsData.respuestas.confirmacion.palabras.some(word =>
-    responseWords.has(word.toLowerCase())
-  );
-  console.log(`Confirmación detectada: confirmPhraseFound=${confirmPhraseFound}, confirmWordFound=${confirmWordFound}`);
-  if (!(confirmPhraseFound || confirmWordFound)) {
-    console.log("No se detectó confirmación en el mensaje. Se ignora.");
-    return;
+  const feedbackWords = client.keywordsData.respuestas.feedback?.palabras || [];
+  const feedbackPhrases = client.keywordsData.respuestas.feedback?.frases || [];
+  
+  let feedbackDetected = false;
+  for (let phrase of feedbackPhrases) {
+    if (responseText.includes(phrase.toLowerCase())) {
+      feedbackDetected = true;
+      break;
+    }
+  }
+  if (!feedbackDetected) {
+    const responseWords = new Set(responseText.split(/\s+/));
+    for (let word of feedbackWords) {
+      if (responseWords.has(word.toLowerCase())) {
+        feedbackDetected = true;
+        break;
+      }
+    }
+  }
+  console.log(feedbackDetected 
+    ? "Retroalimentación detectada en el mensaje de respuesta." 
+    : "No se detectó retroalimentación en el mensaje de respuesta.");
+  return feedbackDetected;
+}
+
+/**
+ * extractFeedbackIdentifier - Extrae el identificador a partir del mensaje citado.
+ * Si el mensaje citado proviene del comando /tareaDetalles (contiene "Detalles de la incidencia"),
+ * se extrae el id numérico del texto; de lo contrario, se utiliza la metadata (originalMsgId).
+ */
+async function extractFeedbackIdentifier(quotedMessage) {
+  const text = quotedMessage.body;
+  console.log("Texto del mensaje citado:", text);
+  
+  if (text.includes("Detalles de la incidencia")) {
+    const regex = /Detalles de la incidencia\s*\(ID:\s*(\d+)\)/i;
+    const match = text.match(regex);
+    if (match) {
+      console.log("Identificador numérico encontrado en mensaje de detalles:", match[1]);
+      return match[1];
+    }
   }
   
-  incidenceDB.getIncidenciaById(incidenciaId, async (err, incidencia) => {
-    if (err || !incidencia) {
-      console.error("Error al obtener detalles de la incidencia para confirmación.");
-      return;
-    }
-    
-    // Determinar el equipo que responde según el ID del chat destino
-    let categoriaConfirmada = "";
-    if (chatId === config.groupBotDestinoId) {
-      categoriaConfirmada = "it";
-    } else if (chatId === config.groupMantenimientoId) {
-      categoriaConfirmada = "man";
-    } else if (chatId === config.groupAmaId) {
-      categoriaConfirmada = "ama";
-    }
-    
-    // Actualizar confirmaciones en la incidencia
-    if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
-      incidencia.confirmaciones[categoriaConfirmada] = new Date().toISOString();
-    } else {
-      incidencia.confirmaciones = { [categoriaConfirmada]: new Date().toISOString() };
-    }
-    
-    // Registrar en el historial de feedback el comentario de confirmación
-    let history = [];
-    try {
-      if (typeof incidencia.feedbackHistory === "string") {
-        history = JSON.parse(incidencia.feedbackHistory);
-      } else if (Array.isArray(incidencia.feedbackHistory)) {
-        history = incidencia.feedbackHistory;
-      }
-    } catch (e) {
-      history = [];
-    }
+  if (quotedMessage.id && quotedMessage.id._serialized) {
+    console.log("Extrayendo identificador del mensaje citado (metadata):", quotedMessage.id._serialized);
+    return quotedMessage.id._serialized;
+  }
+  
+  console.log("No se encontró identificador en el mensaje citado.");
+  return null;
+}
+
+/**
+ * detectResponseType - Determina el tipo de respuesta a partir del texto.
+ */
+function detectResponseType(client, text) {
+  const normalizedText = text.trim().toLowerCase();
+  const confPalabras = client.keywordsData.respuestas.confirmacion?.palabras || [];
+  const confFrases = client.keywordsData.respuestas.confirmacion?.frases || [];
+  const fbRespPalabras = client.keywordsData.respuestas.feedback?.palabras || [];
+  const fbRespFrases = client.keywordsData.respuestas.feedback?.frases || [];
+  
+  if (confPalabras.includes(normalizedText)) return "confirmacion";
+  for (let frase of confFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) return "confirmacion";
+  }
+  for (let palabra of fbRespPalabras) {
+    if (normalizedText.includes(palabra.toLowerCase())) return "feedbackrespuesta";
+  }
+  for (let frase of fbRespFrases) {
+    if (normalizedText.includes(frase.toLowerCase())) return "feedbackrespuesta";
+  }
+  return "none";
+}
+
+/**
+ * processFeedbackResponse - Procesa la respuesta de retroalimentación del solicitante.
+ */
+async function processFeedbackResponse(client, message, incidence) {
+  const responseText = message.body;
+  const responseType = detectResponseType(client, responseText);
+  
+  if (responseType === "confirmacion") {
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateIncidenciaStatus(incidence.id, "completada", async (err) => {
+        if (err) return reject(err);
+        const creationTime = moment(incidence.fechaCreacion);
+        const completionTime = moment();
+        const duration = moment.duration(completionTime.diff(creationTime));
+        const days = Math.floor(duration.asDays());
+        const hours = duration.hours();
+        const minutes = duration.minutes();
+        const finalMsg = `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+        resolve(finalMsg);
+      });
+    });
+  } else if (responseType === "feedbackrespuesta") {
     const feedbackRecord = {
       usuario: message.author || message.from,
       comentario: message.body,
       fecha: new Date().toISOString(),
-      equipo: categoriaConfirmada,
-      tipo: "confirmacion"
+      equipo: "solicitante"
     };
-    history.push(feedbackRecord);
-    
-    incidenceDB.updateFeedbackHistory(incidenciaId, history, (err) => {
-      if (err) {
-        console.error("Error al actualizar feedbackHistory:", err);
-      }
+    return new Promise((resolve, reject) => {
+      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+        if (err) return reject(err);
+        resolve("Su retroalimentación ha sido registrada.");
+      });
     });
-    
-    incidenceDB.updateConfirmaciones(incidenciaId, JSON.stringify(incidencia.confirmaciones), (err) => {
-      if (err) {
-        console.error("Error al actualizar confirmaciones:", err);
-      } else {
-        console.log(`Confirmación para la categoría ${categoriaConfirmada} actualizada para la incidencia ${incidenciaId}.`);
-        const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
-        const requiredTeams = incidencia.categoria.split(',').map(c => c.trim().toLowerCase());
-        const confirmedTeams = incidencia.confirmaciones
-          ? Object.keys(incidencia.confirmaciones).filter(k => {
-              const ts = incidencia.confirmaciones[k];
-              return ts && !isNaN(Date.parse(ts));
-            })
-          : [];
-        const totalTeams = requiredTeams.length;
-        const missingTeams = requiredTeams
-          .filter(team => !confirmedTeams.includes(team))
-          .map(team => teamNames[team] || team.toUpperCase());
-        
-        // Calcular el tiempo de respuesta desde la creación de la incidencia
-        const responseTime = moment().diff(moment(incidencia.fechaCreacion));
-        const diffDuration = moment.duration(responseTime);
-        const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
-        
-        // Generar la sección de comentarios a partir del historial de feedback
-        const comentarios = generarComentarios(incidencia, requiredTeams, teamNames);
-        
-        // Si no todos los equipos han confirmado, se envía un mensaje parcial (evento de fases)
-        if (confirmedTeams.length < totalTeams) {
-          client.getChatById(config.groupPruebaId)
-            .then(mainGroupChat => {
-              const partialMessage = `ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}\n` +
-                `${incidencia.descripcion}\n\n` +
-                `Tarea terminada por:\n${confirmedTeams.length > 0 ? confirmedTeams.map(t => teamNames[t] || t.toUpperCase()).join(", ") : "Ninguno"}\n\n` +
-                `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
-                `Comentarios:\n${comentarios}` +
-                `⏱️Tiempo de respuesta: ${diffResponseStr}`;
-              mainGroupChat.sendMessage(partialMessage)
-                .then(() => console.log("Mensaje de confirmación parcial enviado:", partialMessage))
-                .catch(e => console.error("Error al enviar confirmación parcial al grupo principal:", e));
-            })
-            .catch(e => console.error("Error al obtener el chat principal:", e));
-        } else {
-          // Si todos los equipos han confirmado, se marca la incidencia como COMPLETADA y se envía el mensaje final
-          incidenceDB.updateIncidenciaStatus(incidenciaId, "completada", async (err) => {
-            if (err) {
-              console.error("Error al actualizar la incidencia:", err);
-              return;
-            }
-            await quotedMessage.reply(`La incidencia (ID: ${incidenciaId}) ha sido marcada como COMPLETADA.`);
-            console.log(`Incidencia ${incidenciaId} actualizada a COMPLETADA en grupo destino.`);
-            enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada);
-          });
-        }
-      }
-    });
-  });
+  } else {
+    return "No se reconoció un tipo de respuesta válido.";
+  }
 }
 
 /**
- * generarComentarios - Recorre el historial de feedback y extrae el comentario
- * correspondiente para cada equipo requerido.
+ * determineTeamFromGroup - Determina el equipo (it, man, ama) a partir del chat del mensaje.
  */
-function generarComentarios(incidencia, requiredTeams, teamNames) {
+async function determineTeamFromGroup(message) {
+  try {
+    const chat = await message.getChat();
+    const chatId = chat.id._serialized;
+    for (const [key, groupId] of Object.entries(config.destinoGrupos)) {
+      if (groupId === chatId) {
+        return key;
+      }
+    }
+    return "desconocido";
+  } catch (error) {
+    console.error("Error al determinar el equipo desde el grupo:", error);
+    return "desconocido";
+  }
+}
+
+/**
+ * generarComentarios - Genera una sección de comentarios a partir del historial de feedback.
+ */
+function generarComentarios(incidence, requiredTeams, teamNames) {
   let comentarios = "";
   let feedbackHistory = [];
   try {
-    if (typeof incidencia.feedbackHistory === "string") {
-      feedbackHistory = JSON.parse(incidencia.feedbackHistory);
-    } else if (Array.isArray(incidencia.feedbackHistory)) {
-      feedbackHistory = incidencia.feedbackHistory;
+    if (typeof incidence.feedbackHistory === "string") {
+      feedbackHistory = JSON.parse(incidence.feedbackHistory);
+    } else if (Array.isArray(incidence.feedbackHistory)) {
+      feedbackHistory = incidence.feedbackHistory;
     }
   } catch (e) {
     feedbackHistory = [];
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Buscar el último feedback para el equipo
     const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
     const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
     comentarios += `${displayName}: ${comentario}\n`;
@@ -193,59 +173,208 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
 }
 
 /**
- * enviarConfirmacionGlobal - Envía el mensaje final de confirmación al grupo principal.
+ * processTeamFeedbackResponse - Procesa la respuesta enviada en grupos destino y envía al grupo principal.
+ * 
+ * - Si se detecta confirmación (palabras de confirmación), se delega el proceso a processConfirmation.
+ * - Si no, se asume feedback y se envía:
+ * 
+ *   RESPUESTA DE RETROALIMENTACION
+ *   {incidence.descripcion}
+ *   
+ *   {EQUIPO} RESPONDE:
+ *   {respuesta del equipo}
  */
-async function enviarConfirmacionGlobal(client, incidencia, incidenciaId, categoriaConfirmada) {
-  let teamNames = {};
-  if (incidencia.categoria) {
-    incidencia.categoria.split(',').forEach(cat => {
-      const t = cat.trim().toLowerCase();
-      if (t === "it") teamNames[t] = "IT";
-      else if (t === "man") teamNames[t] = "MANTENIMIENTO";
-      else if (t === "ama") teamNames[t] = "AMA";
+async function processTeamFeedbackResponse(client, message) {
+  if (!message.hasQuotedMsg) {
+    console.log("El mensaje del equipo no cita ningún mensaje de solicitud.");
+    return "El mensaje no cita la solicitud de retroalimentación.";
+  }
+  
+  const quotedMessage = await message.getQuotedMessage();
+  const quotedText = quotedMessage.body;
+  const normalizedQuotedText = quotedText.toLowerCase();
+  
+  if (!normalizedQuotedText.includes("solicitud de retroalimentacion para la tarea")) {
+    console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
+    return "El mensaje citado no es una solicitud válida de retroalimentación.";
+  }
+  
+  const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
+  const match = normalizedQuotedText.match(regex);
+  if (!match) {
+    console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
+    return "No se pudo extraer el ID de la incidencia del mensaje citado.";
+  }
+  const incidenceId = match[1];
+  console.log("ID extraído del mensaje citado:", incidenceId);
+  
+  let incidence = await new Promise((resolve, reject) => {
+    incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
     });
-  }
-  const equiposInvolucrados = Object.values(teamNames).join(", ");
-  
-  let cronometros = "";
-  if (incidencia.confirmaciones && typeof incidencia.confirmaciones === "object") {
-    for (const [cat, confirmTime] of Object.entries(incidencia.confirmaciones)) {
-      if (confirmTime !== false) {
-        const team = teamNames[cat] || cat.toUpperCase();
-        const diffDuration = moment.duration(moment(confirmTime).diff(moment(incidencia.fechaCreacion)));
-        const diffStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
-        cronometros += `Cronómetro ${team}: ${diffStr}\n`;
-      }
-    }
+  });
+  if (!incidence) {
+    console.log("No se encontró la incidencia con el ID:", incidenceId);
+    return "No se encontró la incidencia correspondiente.";
   }
   
-  const creationTime = moment(incidencia.fechaCreacion);
-  const formattedCreation = creationTime.format("DD/MM/YYYY hh:mm a");
-  const confirmationTime = moment();
-  const formattedConfirmation = confirmationTime.format("DD/MM/YYYY hh:mm a");
-  const diffDurationGlobal = moment.duration(confirmationTime.diff(creationTime));
-  const diffStrGlobal = `${Math.floor(diffDurationGlobal.asDays())} día(s), ${diffDurationGlobal.hours()} hora(s), ${diffDurationGlobal.minutes()} minuto(s)`;
+  const team = await determineTeamFromGroup(message);
   
-  const confirmationMessage = `*ATENCIÓN*\n` +
-    `Tarea de *${equiposInvolucrados}*:\n\n` +
-    `${incidencia.descripcion}\n\n` +
-    `ha sido *COMPLETADA*\n\n` +
-    `*📅Creación:* ${incidencia.fechaCreacion}\n` +
-    `*📅Conclusión:* ${formattedConfirmation}\n\n` +
-    `*⏱️Se concluyó en:* ${diffStrGlobal}\n` +
-    `${cronometros}` +
-    `*ID:* ${incidenciaId}\n\n` +
-    `*MUCHAS GRACIAS POR SU PACIENCIA* 😊`;
+  const responseType = detectResponseType(client, message.body);
   
-  try {
-    const mainGroupChat = await client.getChatById(config.groupPruebaId);
-    await mainGroupChat.sendMessage(confirmationMessage);
-    console.log(`Confirmación final enviada al grupo principal: ${confirmationMessage}`);
-  } catch (error) {
-    console.error("Error al enviar confirmación al grupo principal:", error);
+  // Si se detecta confirmación, delegamos a processConfirmation
+  if (responseType === "confirmacion") {
+    return processConfirmation(client, message);
+  }
+  
+  // Si no, se asume feedback
+  const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
+                      `${incidence.descripcion}\n\n` +
+                      `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+  
+  return new Promise((resolve, reject) => {
+    client.getChatById(config.groupPruebaId)
+      .then(mainGroupChat => {
+        mainGroupChat.sendMessage(responseMsg)
+          .then(() => {
+            console.log("Mensaje enviado al grupo principal:", responseMsg);
+            resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
+          })
+          .catch(err => {
+            console.error("Error al enviar mensaje al grupo principal:", err);
+            resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
+          });
+      })
+      .catch(err => {
+        console.error("Error al obtener chat principal:", err);
+        resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
+      });
+  });
+}
+
+/**
+ * getFeedbackConfirmationMessage - Consulta en la BD la incidencia y construye un mensaje de retroalimentación.
+ */
+async function getFeedbackConfirmationMessage(identifier) {
+  let incidence;
+  if (/^\d+$/.test(identifier)) {
+    incidence = await new Promise((resolve, reject) => {
+      incidenceDB.getIncidenciaById(identifier, (err, row) => {
+        if (err) return reject(err);
+        resolve(row);
+      });
+    });
+  } else {
+    incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
+  }
+  if (!incidence) {
+    console.log("No se encontró incidencia con el identificador: " + identifier);
+    return null;
+  }
+  
+  if (incidence.estado.toLowerCase() === "completada") {
+    const creationTime = moment(incidence.fechaCreacion);
+    const completionTime = moment();
+    const duration = moment.duration(completionTime.diff(incidence.fechaCreacion));
+    const days = Math.floor(duration.asDays());
+    const hours = duration.hours();
+    const minutes = duration.minutes();
+    return `ESTA TAREA HA SIDO COMPLETADA.\nFecha de creación: ${incidence.fechaCreacion}\nFecha de finalización: ${completionTime.format("YYYY-MM-DD HH:mm")}\nTiempo activo: ${days} día(s), ${hours} hora(s), ${minutes} minuto(s)`;
+  } else {
+    return `RETROALIMENTACION SOLICITADA PARA:\n${incidence.descripcion}\nID: ${incidence.id}\nCategoría: ${incidence.categoria}`;
   }
 }
 
-module.exports = { processConfirmation };
+/**
+ * detectRetroRequest - Detecta si un mensaje es una solicitud de retroalimentación
+ * usando la categoría "retro".
+ */
+async function detectRetroRequest(client, message) {
+  const responseText = message.body.toLowerCase();
+  const retroData = client.keywordsData.identificadores.retro;
+  if (!retroData) {
+    console.log("No existe la categoría 'retro' en las keywords.");
+    return false;
+  }
+  const responseWords = new Set(responseText.split(/\s+/));
+  const foundKeyword = retroData.palabras.some(word => responseWords.has(word.toLowerCase()));
+  const foundPhrase = retroData.frases.some(phrase => responseText.includes(phrase.toLowerCase()));
+  console.log(`Retro: foundKeyword=${foundKeyword}, foundPhrase=${foundPhrase}`);
+  return foundKeyword || foundPhrase;
+}
 
-//nuevo confirmation
+/**
+ * processRetroRequest - Procesa la solicitud de retroalimentación para la categoría "retro".
+ */
+async function processRetroRequest(client, message) {
+  const chat = await message.getChat();
+  if (!message.hasQuotedMsg) {
+    await chat.sendMessage("El mensaje de retroalimentación no hace énfasis en ninguna incidencia.");
+    return;
+  }
+  const quotedMessage = await message.getQuotedMessage();
+  const identifier = await extractFeedbackIdentifier(quotedMessage);
+  if (!identifier) {
+    await chat.sendMessage("No se pudo extraer el identificador de la incidencia citada.");
+    return;
+  }
+  let incidence;
+  if (/^\d+$/.test(identifier)) {
+    incidence = await new Promise((resolve, reject) => {
+      incidenceDB.getIncidenciaById(identifier, (err, row) => {
+        if (err) return reject(err);
+        resolve(row);
+      });
+    });
+  } else {
+    incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(identifier);
+  }
+  if (!incidence) {
+    await chat.sendMessage("No se encontró la incidencia correspondiente.");
+    return;
+  }
+  const categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
+  const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+  let gruposEnviados = [];
+  for (const cat of categories) {
+    if (incidence.confirmaciones && incidence.confirmaciones[cat]) {
+      console.log(`La categoría ${cat} ya ha confirmado, no se envía retroalimentación.`);
+      continue;
+    }
+    const groupDest = config.destinoGrupos[cat];
+    if (!groupDest) {
+      console.log(`No se encontró grupo asignado para la categoría: ${cat}`);
+      continue;
+    }
+    const retroResponse = `*SOLICITUD DE RETROALIMENTACION PARA LA TAREA ${incidence.id}:*\n` +
+                            `${incidence.descripcion}\n` +
+                            `Por favor, proporcione sus comentarios`;
+    try {
+      const targetChat = await client.getChatById(groupDest);
+      await targetChat.sendMessage(retroResponse);
+      console.log(`Solicitud de retroalimentación enviada al grupo de ${teamNames[cat] || cat.toUpperCase()}.`);
+      gruposEnviados.push(teamNames[cat] || cat.toUpperCase());
+    } catch (error) {
+      console.error(`Error al enviar retroalimentación al grupo de ${teamNames[cat] || cat.toUpperCase()}:`, error);
+    }
+  }
+  if (gruposEnviados.length > 0) {
+    await chat.sendMessage(`Solicitud de retroalimentación procesada correctamente para: *${gruposEnviados.join(", ")}*`);
+  } else {
+    await chat.sendMessage("No se envió solicitud de retroalimentación, ya que todas las categorías han confirmado.");
+  }
+}
+
+module.exports = { 
+  detectFeedbackRequest, 
+  extractFeedbackIdentifier, 
+  detectResponseType,
+  processFeedbackResponse,
+  processTeamFeedbackResponse,
+  getFeedbackConfirmationMessage,
+  detectRetroRequest,
+  processRetroRequest
+};
+
+//nuevo
