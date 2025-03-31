@@ -151,8 +151,9 @@ async function processTeamFeedbackResponse(client, message) {
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  const regex = /ID:\s*(\d+)/i;
-  const match = quotedText.match(regex);
+  // Nuevo regex que extrae el id justo después de "solicitud de retroalimentacion para la tarea"
+  const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
+  const match = normalizedQuotedText.match(regex);
   if (!match) {
     console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
     return "No se pudo extraer el ID de la incidencia del mensaje citado.";
@@ -333,4 +334,4 @@ module.exports = {
   processRetroRequest
 };
 
-//nuevo modulo
+//id
