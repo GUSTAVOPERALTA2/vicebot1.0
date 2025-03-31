@@ -157,7 +157,7 @@ async function determineTeamFromGroup(message) {
  * Si la respuesta es de feedback (no de confirmación), se envía el mensaje con el formato:
  * 
  * RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
- * {incidencia.descripcion}
+ * {incidence.descripcion}
  * 
  * EL EQUIPO RESPONDE:
  * {respuesta del equipo}
@@ -343,7 +343,7 @@ async function processRetroRequest(client, message) {
   let gruposEnviados = [];
   // Enviar la solicitud únicamente a aquellas categorías que aún no han confirmado.
   for (const cat of categories) {
-    if (incidence.confirmaciones && incidencia.confirmaciones[cat]) {
+    if (incidence.confirmaciones && incidence.confirmaciones[cat]) {
       console.log(`La categoría ${cat} ya ha confirmado, no se envía retroalimentación.`);
       continue;
     }
@@ -382,5 +382,4 @@ module.exports = {
   processRetroRequest
 };
 
-
-//nuevo feed
+//listo
