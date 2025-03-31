@@ -419,42 +419,65 @@ async function handleCommands(client, message) {
   }
  
   // Comando: /tareaDetalles <id>
-  if (normalizedBody.startsWith('/tareadetalles')) {
-    const parts = body.split(' ');
-    if (parts.length < 2) {
-      await chat.sendMessage("Formato inválido. Uso: /tareaDetalles <id>");
-      return true;
-    }
-    const incId = parts[1].trim();
-    incidenceDB.getIncidenciaById(incId, async (err, row) => {
-      if (err) {
-        await chat.sendMessage("Error al consultar la incidencia.");
-      } else if (!row) {
-        await chat.sendMessage(`No se encontró ninguna incidencia con ID ${incId}.`);
-      } else {
-        let detailMessage = `*Detalles de la incidencia (ID: ${row.id}):*\n\n`;
-        detailMessage += `*Descripción:*\n ${row.descripcion}\n`;
-        const user = getUser(row.reportadoPor);
-        if (user) {
-          detailMessage += `*Reportado por:*\n ${user.nombre} (${user.cargo}, rol: ${user.rol})\n`;
-        } else {
-          detailMessage += `*Reportado por:*\n ${row.reportadoPor}\n`;
-        }
-        detailMessage += `*Fecha de Creación:*\n ${row.fechaCreacion}\n`;
-        detailMessage += `*Estado:*\n ${row.estado}\n`;
-        detailMessage += `*Categoría:*\n ${row.categoria}\n`;
-        detailMessage += `*Grupo de Origen:*\n ${row.grupoOrigen}\n`;
-        detailMessage += row.media ? "*Media:*\n [Adjunta]" : "*Media:*\n No hay";
-        await chat.sendMessage(detailMessage);
-        if (row.media) {
-          const { MessageMedia } = require('whatsapp-web.js');
-          const media = new MessageMedia("image/png", row.media);
-          await chat.sendMessage(media);
-        }
-      }
-    });
+if (normalizedBody.startsWith('/tareadetalles')) {
+  const parts = body.split(' ');
+  if (parts.length < 2) {
+    await chat.sendMessage("Formato inválido. Uso: /tareaDetalles <id>");
     return true;
   }
+  const incId = parts[1].trim();
+  incidenceDB.getIncidenciaById(incId, async (err, row) => {
+    if (err) {
+      await chat.sendMessage("Error al consultar la incidencia.");
+    } else if (!row) {
+      await chat.sendMessage(`No se encontró ninguna incidencia con ID ${incId}.`);
+    } else {
+      let detailMessage = `*Detalles de la incidencia (ID: ${row.id}):*\n\n`;
+      detailMessage += `*Descripción:*\n ${row.descripcion}\n`;
+      const user = getUser(row.reportadoPor);
+      if (user) {
+        detailMessage += `*Reportado por:*\n ${user.nombre} (${user.cargo}, rol: ${user.rol})\n`;
+      } else {
+        detailMessage += `*Reportado por:*\n ${row.reportadoPor}\n`;
+      }
+      detailMessage += `*Fecha de Creación:*\n ${row.fechaCreacion}\n`;
+      detailMessage += `*Estado:*\n ${row.estado}\n`;
+      detailMessage += `*Categoría:*\n ${row.categoria}\n`;
+      detailMessage += `*Grupo de Origen:*\n ${row.grupoOrigen}\n`;
+      detailMessage += row.media ? "*Media:*\n [Adjunta]" : "*Media:*\n No hay";
+      
+      // Si la incidencia tiene múltiples categorías, agregar sección de comentarios
+      const categorias = row.categoria.split(',').map(c => c.trim().toLowerCase());
+      if (categorias.length > 1) {
+        let comentarios = "";
+        if (row.feedbackHistory) {
+          try {
+            const history = JSON.parse(row.feedbackHistory);
+            const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
+            categorias.forEach(cat => {
+              const record = history.filter(r => r.equipo && r.equipo.toLowerCase() === cat).pop();
+              const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
+              comentarios += `${teamNames[cat] || cat.toUpperCase()}: ${comentario}\n`;
+            });
+          } catch (e) {
+            comentarios = "Sin comentarios";
+          }
+        } else {
+          comentarios = "Sin comentarios";
+        }
+        detailMessage += `\n*Comentarios:*\n${comentarios}`;
+      }
+      
+      await chat.sendMessage(detailMessage);
+      if (row.media) {
+        const { MessageMedia } = require('whatsapp-web.js');
+        const media = new MessageMedia("image/png", row.media);
+        await chat.sendMessage(media);
+      }
+    }
+  });
+  return true;
+}
   
   // Si ningún comando se detecta, se retorna false.
   return false;
