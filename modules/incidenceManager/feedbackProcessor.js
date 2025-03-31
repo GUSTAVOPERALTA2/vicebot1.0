@@ -1,6 +1,8 @@
 const incidenceDB = require('./incidenceDB');
 const moment = require('moment');
 const config = require('../../config/config');
+// Importamos processConfirmation para delegar el procesamiento de confirmaciones
+const { processConfirmation } = require('./confirmationProcessor');
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
@@ -173,27 +175,14 @@ function generarComentarios(incidence, requiredTeams, teamNames) {
 /**
  * processTeamFeedbackResponse - Procesa la respuesta enviada en grupos destino y envía al grupo principal.
  * 
- * - Si la respuesta es de feedback (tipo "feedbackrespuesta"), se envía:
- *   RESPUESTA DE RETROALIMENTACION, EQUIPO {EQUIPO}
- *   {incidence.descripcion}
- *   
- *   EL EQUIPO RESPONDE:
- *   {respuesta del equipo}
+ * - Si se detecta confirmación (palabras de confirmación), se delega el proceso a processConfirmation.
+ * - Si no, se asume feedback y se envía:
  * 
- * - Si la respuesta es de confirmación ("confirmacion"), se envía:
- *   ATENCIÓN TAREA EN FASE {fase} de {total equipos}
+ *   RESPUESTA DE RETROALIMENTACION
  *   {incidence.descripcion}
  *   
- *   Tarea terminada por:
- *   {equipo que confirmó}
- *   
- *   Equipo(s) que faltan:
- *   {lista de equipos faltantes}
- *   
- *   Comentarios:
- *   {comentarios por equipo}
- *   
- *   ⏱️Tiempo de respuesta: {tiempo}
+ *   {EQUIPO} RESPONDE:
+ *   {respuesta del equipo}
  */
 async function processTeamFeedbackResponse(client, message) {
   if (!message.hasQuotedMsg) {
@@ -232,73 +221,40 @@ async function processTeamFeedbackResponse(client, message) {
   
   const team = await determineTeamFromGroup(message);
   
-  const feedbackRecord = {
-    usuario: message.author || message.from,
-    comentario: message.body,
-    fecha: new Date().toISOString(),
-    equipo: team
-  };
+  const responseType = detectResponseType(client, message.body);
+  
+  // Si se detecta confirmación, delegamos a processConfirmation
+  if (responseType === "confirmacion") {
+    return processConfirmation(client, message);
+  }
+  
+  // Si no, se asume feedback
+  const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
+                      `${incidence.descripcion}\n\n` +
+                      `${team.toUpperCase()} RESPONDE:\n${message.body}`;
   
   return new Promise((resolve, reject) => {
-    incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
-      if (err) {
-        console.error("Error al registrar el feedback:", err);
-        return reject("Error al registrar el feedback.");
-      }
-      console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
-      
-      const responseType = detectResponseType(client, message.body);
-      let responseMsg = "";
-      
-      if (responseType === "feedbackrespuesta") {
-        // BUG 2: Enviar mensaje de feedback
-        responseMsg = `RESPUESTA DE RETROALIMENTACION, EQUIPO ${team.toUpperCase()}\n` +
-                      `${incidence.descripcion}\n\n` +
-                      `EL EQUIPO RESPONDE:\n${message.body}`;
-      } else if (responseType === "confirmacion") {
-        // BUG 1: Para confirmación, se sobrescribe confirmaciones para que solo cuente la respuesta actual
-        incidence.confirmaciones = { [team]: new Date().toISOString() };
-        const requiredTeams = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
-        const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
-        const confirmedTeams = Object.keys(incidence.confirmaciones); // Será solo [team]
-        const totalTeams = requiredTeams.length;
-        const missingTeams = requiredTeams.filter(t => !confirmedTeams.includes(t)).map(t => teamNames[t] || t.toUpperCase());
-        
-        const responseTime = moment().diff(moment(incidence.fechaCreacion));
-        const diffDuration = moment.duration(responseTime);
-        const diffResponseStr = `${Math.floor(diffDuration.asDays())} día(s), ${diffDuration.hours()} hora(s), ${diffDuration.minutes()} minuto(s)`;
-        
-        responseMsg = `ATENCIÓN TAREA EN FASE ${confirmedTeams.length} de ${totalTeams}\n` +
-                      `${incidence.descripcion}\n\n` +
-                      `Tarea terminada por:\n${teamNames[team] || team.toUpperCase()}\n\n` +
-                      `Equipo(s) que faltan:\n${missingTeams.length > 0 ? missingTeams.join(", ") : "Ninguno"}\n\n` +
-                      `Comentarios:\n${generarComentarios(incidence, requiredTeams, teamNames)}` +
-                      `⏱️Tiempo de respuesta: ${diffResponseStr}`;
-      }
-      
-      client.getChatById(config.groupPruebaId)
-        .then(mainGroupChat => {
-          mainGroupChat.sendMessage(responseMsg)
-            .then(() => {
-              console.log("Mensaje enviado al grupo principal:", responseMsg);
-              resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
-            })
-            .catch(err => {
-              console.error("Error al enviar mensaje al grupo principal:", err);
-              resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
-            });
-        })
-        .catch(err => {
-          console.error("Error al obtener chat principal:", err);
-          resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
-        });
-    });
+    client.getChatById(config.groupPruebaId)
+      .then(mainGroupChat => {
+        mainGroupChat.sendMessage(responseMsg)
+          .then(() => {
+            console.log("Mensaje enviado al grupo principal:", responseMsg);
+            resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
+          })
+          .catch(err => {
+            console.error("Error al enviar mensaje al grupo principal:", err);
+            resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
+          });
+      })
+      .catch(err => {
+        console.error("Error al obtener chat principal:", err);
+        resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
+      });
   });
 }
 
 /**
- * getFeedbackConfirmationMessage - Consulta en la BD la incidencia correspondiente
- * y construye un mensaje de retroalimentación.
+ * getFeedbackConfirmationMessage - Consulta en la BD la incidencia y construye un mensaje de retroalimentación.
  */
 async function getFeedbackConfirmationMessage(identifier) {
   let incidence;
@@ -320,7 +276,7 @@ async function getFeedbackConfirmationMessage(identifier) {
   if (incidence.estado.toLowerCase() === "completada") {
     const creationTime = moment(incidence.fechaCreacion);
     const completionTime = moment();
-    const duration = moment.duration(completionTime.diff(creationTime));
+    const duration = moment.duration(completionTime.diff(incidence.fechaCreacion));
     const days = Math.floor(duration.asDays());
     const hours = duration.hours();
     const minutes = duration.minutes();
@@ -332,7 +288,7 @@ async function getFeedbackConfirmationMessage(identifier) {
 
 /**
  * detectRetroRequest - Detecta si un mensaje es una solicitud de retroalimentación
- * usando la nueva categoría "retro".
+ * usando la categoría "retro".
  */
 async function detectRetroRequest(client, message) {
   const responseText = message.body.toLowerCase();
@@ -422,4 +378,4 @@ module.exports = {
 };
 
 
-//nuevo modulo de confirmaciones
+//nuevo feedback
