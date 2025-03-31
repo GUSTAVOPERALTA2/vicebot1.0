@@ -144,7 +144,8 @@ async function processTeamFeedbackResponse(client, message) {
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
   
-  if (!quotedText.includes("Se solicita retroalimentacion para la tarea:")) {
+  // Ahora se acepta que el mensaje citado inicie con "solicitud de retroalimentacion para la tarea"
+  if (!quotedText.trim().toLowerCase().startsWith("solicitud de retroalimentacion para la tarea")) {
     console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
@@ -331,4 +332,4 @@ module.exports = {
   processRetroRequest
 };
 
-//nuevo modulo
+//nuevo aaah
