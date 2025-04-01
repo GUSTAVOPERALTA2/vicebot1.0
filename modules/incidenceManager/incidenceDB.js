@@ -212,6 +212,15 @@ function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
   });
 }
 
+function cancelarIncidencia(incidenciaId, callback) {
+  const sql = "UPDATE incidencias SET estado = ?, fechaCancelacion = ? WHERE id = ? AND estado = ?";
+  const fechaCancelacion = new Date().toISOString();
+  // Solo se cancelan incidencias que estén en estado "pendiente"
+  db.run(sql, ["cancelada", fechaCancelacion, incidenciaId, "pendiente"], function(err) {
+    callback(err);
+  });
+}
+
 module.exports = {
   initDB,
   getDB,
@@ -224,5 +233,6 @@ module.exports = {
   getIncidenciasByRange,
   updateIncidenciaStatus,
   updateConfirmaciones,
-  updateFeedbackHistory
+  updateFeedbackHistory,
+  cancelarIncidencia
 };
