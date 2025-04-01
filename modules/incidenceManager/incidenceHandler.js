@@ -2,6 +2,11 @@
 const config = require('../../config/config');
 const { processNewIncidence } = require('./newIncidence');
 const { handleFeedbackRequestFromOrigin, processTeamFeedbackResponse } = require('./feedbackProcessor');
+const { processConfirmation } = require('./confirmationProcessor');
+
+/**
+ * Función auxiliar para normalizar texto: lo recorta y lo pasa a minúsculas.
+ */
 
 async function handleIncidence(client, message) {
   const chat = await message.getChat();
@@ -14,6 +19,7 @@ async function handleIncidence(client, message) {
       // Importar la función normalizeText del feedbackProcessor
       const { normalizeText } = require('./feedbackProcessor');
       const normalizedText = normalizeText(message.body);
+      //Palabras y frases cargadas retro
       const retroPhrases = client.keywordsData.retro?.frases || [];
       const retroWords = client.keywordsData.retro?.palabras || [];
       
@@ -39,6 +45,10 @@ async function handleIncidence(client, message) {
       if (foundIndicator) {
         console.log("Indicadores retro detectados, procesando solicitud de feedback.");
         await handleFeedbackRequestFromOrigin(client, message);
+        return;
+      } else {
+        // Si no se detectan indicadores "retro", se informa al usuario y se ignora el mensaje.
+        await chat.sendMessage("La forma de contestación no es válida para registrar una incidencia. Por favor, envía tu incidencia sin citar un mensaje.");
         return;
       }
     }
