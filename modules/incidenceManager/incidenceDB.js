@@ -215,12 +215,20 @@ function updateFeedbackHistory(incidenciaId, newFeedback, callback) {
 function cancelarIncidencia(incidenciaId, callback) {
   const sql = "UPDATE incidencias SET estado = ?, fechaCancelacion = ? WHERE id = ? AND estado = ?";
   const fechaCancelacion = new Date().toISOString();
-  // Solo se cancelan incidencias que estén en estado "pendiente"
+  console.log(`Ejecutando cancelarIncidencia para ID: ${incidenciaId} con estado 'pendiente'. Fecha cancelación: ${fechaCancelacion}`);
   db.run(sql, ["cancelada", fechaCancelacion, incidenciaId, "pendiente"], function(err) {
-    callback(err);
+    if (err) {
+      console.error(`Error en cancelarIncidencia para ID: ${incidenciaId}:`, err);
+      callback(err);
+    } else if (this.changes === 0) {
+      console.warn(`cancelarIncidencia: No se actualizó ninguna incidencia para ID: ${incidenciaId}. Verifica que la incidencia exista y esté en estado 'pendiente'.`);
+      callback(new Error("No se actualizó ninguna incidencia; verifica que el ID exista y que la incidencia esté en estado pendiente."));
+    } else {
+      console.log(`cancelarIncidencia: Incidencia ID ${incidenciaId} actualizada a 'cancelada' correctamente.`);
+      callback(null);
+    }
   });
 }
-
 module.exports = {
   initDB,
   getDB,
