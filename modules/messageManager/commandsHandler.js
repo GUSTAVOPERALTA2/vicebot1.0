@@ -26,7 +26,7 @@ async function handleCommands(client, message) {
       "*/tareasRango <fechaInicio> <fechaFin>* \n Consulta incidencias en un rango de fechas.\n\n" +
       "*/tareasPendientes <categoria>* \n Muestra únicamente las incidencias pendientes.\n\n" +
       "*/tareasCompletadas <categoria>* \n Muestra únicamente las incidencias completadas.\n\n" +
-      "*/tareaCancelar <id>* \n Cancelar incidencia. \n\n" +
+      "*/cancelarTarea <id>* \n Cancelar incidencia. \n\n" +
       "*/tareaDetalles <id>* \n Muestra los detalles de una incidencia.\n\n";
     await chat.sendMessage(helpMessage);
     return true;
@@ -420,19 +420,19 @@ async function handleCommands(client, message) {
   }
 
   // Comando: /cancelarTarea <id>
-  if (normalizedBody.startsWith('/tareaCancelar')) {
+  if (normalizedBody.startsWith('/cancelartarea') || normalizedBody.startsWith('/tareacancelar')) {
     const currentUser = getUser(senderId);
-    if (!currentUser || currentUser.rol !== 'admin') {
+    if (!currentUser || currentUser.rol !== 'user') {
       await chat.sendMessage("No tienes permisos para ejecutar este comando.");
       return true;
     }
     const parts = body.split(' ');
     if (parts.length < 2) {
-      await chat.sendMessage("Formato inválido. Uso: /cancelarIncidencia <id>");
+      await chat.sendMessage("Formato inválido. Uso: /cancelarTarea <id>");
       return true;
     }
     const incId = parts[1].trim();
-    // Se podría obtener la incidencia para validar su estado antes de cancelar
+    // Se obtiene la incidencia para validar su estado antes de cancelar
     incidenceDB.getIncidenciaById(incId, (err, incidencia) => {
       if (err || !incidencia) {
         chat.sendMessage("No se encontró la incidencia con ese ID.");
@@ -444,7 +444,7 @@ async function handleCommands(client, message) {
             chat.sendMessage("Error al cancelar la incidencia.");
           } else {
             chat.sendMessage(`La incidencia con ID ${incId} ha sido cancelada.`);
-            // Opcional: enviar notificación a otros grupos o al grupo principal
+            // Opcional: Notificar en el grupo principal
             client.getChatById(config.groupPruebaId)
               .then(mainGroupChat => {
                 mainGroupChat.sendMessage(`La incidencia con ID ${incId} ha sido cancelada por ${currentUser.nombre}.`);
