@@ -7,7 +7,9 @@ const { processConfirmation } = require('./confirmationProcessor');
 /**
  * Función auxiliar para normalizar texto: lo recorta y lo pasa a minúsculas.
  */
-
+function normalizeText(text) {
+  return text.trim().toLowerCase();
+}
 async function handleIncidence(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
@@ -17,7 +19,6 @@ async function handleIncidence(client, message) {
     // Si el mensaje cita otro, comprobamos si se usan indicadores de "retro"
     if (message.hasQuotedMsg) {
       // Importar la función normalizeText del feedbackProcessor
-      const { normalizeText } = require('./feedbackProcessor');
       const normalizedText = normalizeText(message.body);
       //Palabras y frases cargadas retro
       const retroPhrases = client.keywordsData.retro?.frases || [];
