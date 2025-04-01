@@ -1,6 +1,6 @@
 // vicebot/modules/incidenceManager/incidenceHandler.js
 const config = require('../../config/config');
-const { processNewIncidencia } = require('./newIncidencia');
+const { processNewIncidencia } = require('./newIncidence');
 const { processTeamFeedbackResponse } = require('./feedbackProcessor');
 const { processConfirmation } = require('./confirmationProcessor');
 
@@ -11,7 +11,7 @@ function normalizeText(text) {
   return text.trim().toLowerCase();
 }
 
-async function handleIncidencia(client, message) {
+async function handleIncidence(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
   
@@ -45,20 +45,16 @@ async function handleIncidencia(client, message) {
       
       if (foundIndicator) {
         console.log("Indicadores retro detectados, procesando solicitud de feedback.");
-        // Aquí podrías delegar a otro método, por ejemplo:
-        // await processRetroRequest(client, message);
-        // O a un método específico para feedback desde el origen.
-        // Para este ejemplo, delegamos a processTeamFeedbackResponse.
         await processTeamFeedbackResponse(client, message);
         return;
       } else {
-        // Si no hay indicadores "retro", se informa al usuario.
+        // Si no hay indicadores "retro", se informa al usuario que la forma de contestación no es válida.
         await chat.sendMessage("La forma de contestación no es válida para registrar una incidencia. Por favor, envía tu incidencia sin citar un mensaje.");
         return;
       }
     }
-    // Si el mensaje no es una respuesta (sin cita), se procesa como nueva incidencia.
-    await processNewIncidencia(client, message);
+    // Si el mensaje no es una respuesta (sin cita), se procesa como incidencia nueva.
+    await processNewIncidence(client, message);
   
   // Mensajes provenientes de grupos destino se procesan como feedback/confirmación
   } else if ([config.groupBotDestinoId, config.groupMantenimientoId, config.groupAmaId].includes(chatId)) {
@@ -68,6 +64,4 @@ async function handleIncidencia(client, message) {
   }
 }
 
-module.exports = { handleIncidencia };
-
-//nueva prueba
+module.exports = { handleIncidence };
