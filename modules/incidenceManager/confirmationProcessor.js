@@ -21,36 +21,38 @@ async function processConfirmation(client, message) {
   }
   const quotedMessage = await message.getQuotedMessage();
   
-  // Limpiar el texto citado para quitar asteriscos y espacios iniciales, y pasarlo a minúsculas
-  const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
+  // Limpiar el texto citado: quitar asteriscos y espacios iniciales
+  const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "");
+  console.log("Texto citado completo:", cleanedQuotedText);
+
+  // Extraer la primera línea para obtener el encabezado
+  const firstLine = cleanedQuotedText.split('\n')[0].trim();
+  console.log("Primera línea del mensaje citado:", firstLine);
   
-  // Definir los patrones permitidos
-  const allowedPatterns = [
-    "recordatorio: tarea incompleta",
-    "nueva tarea recibida",
-    "recordatorio: incidencia",
-    "solicitud de retroalimentacion para la tarea"
+  // Definir expresiones regulares para los patrones permitidos
+  const allowedRegexes = [
+    /^recordatorio:\s*tarea\s+incompleta/i,
+    /^nueva\s+tarea\s+recibida/i,
+    /^recordatorio:\s*incidencia/i,
+    /^solicitud\s+de\s+retroalimentacion\s+para\s+la\s+tarea/i
   ];
-  
-  // Verificar si el texto comienza con alguno de los patrones permitidos.
-  const isValid = allowedPatterns.some(pattern => cleanedQuotedText.startsWith(pattern));
+
+  // Verificar que la primera línea cumpla al menos uno de los patrones
+  const isValid = allowedRegexes.some(regex => regex.test(firstLine));
   if (!isValid) {
-    console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
+    console.log("El mensaje citado no corresponde a una solicitud válida de retroalimentación.");
     return;
   }
-
-  // Intentar extraer el ID usando primero el patrón de solicitud de retroalimentación
-  let idMatch = quotedMessage.body.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
-  // Si no se encuentra, usar el patrón tradicional
+  // Extracción del ID de la incidencia utilizando un regex que cubra varios formatos:
+  let idMatch = quotedMessage.body.match(/(?:\(ID:\s*(\d+)\)|ID:\s*(\d+)|solicitud\s+de\s+retroalimentacion\s+para\s+la\s+tarea\s*(\d+):)/i);
   if (!idMatch) {
-    idMatch = quotedMessage.body.match(/\(ID:\s*(\d+)\)|ID:\s*(\d+)/);
-  }
-  if (!idMatch) {
-    console.log("No se encontró el ID en el mensaje citado. No se actualizará el estado.");
+    console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
     return;
   }
   const incidenciaId = idMatch[1] || idMatch[2] || idMatch[3];
+  console.log("ID extraído del mensaje citado:", incidenciaId);
 
+  // Validar que el mensaje de confirmación contenga palabras clave de confirmación.
   const responseText = message.body.toLowerCase();
   const responseWords = new Set(responseText.split(/\s+/));
   const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
@@ -64,7 +66,7 @@ async function processConfirmation(client, message) {
     console.log("No se detectó confirmación en el mensaje. Se ignora.");
     return;
   }
-  
+  // Obtener la incidencia de la base de datos
   incidenceDB.getIncidenciaById(incidenciaId, async (err, incidencia) => {
     if (err || !incidencia) {
       console.error("Error al obtener detalles de la incidencia para confirmación.");
