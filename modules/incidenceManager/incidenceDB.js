@@ -22,7 +22,8 @@ function initDB() {
                 confirmaciones TEXT,
                 feedbackHistory TEXT,
                 grupoOrigen TEXT,
-                media TEXT
+                media TEXT,
+                fechaCancelacion TEXT
               )`);
     }
   });

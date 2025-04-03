@@ -24,15 +24,21 @@ async function processConfirmation(client, message) {
   // Limpiar el texto citado para quitar asteriscos y espacios iniciales, y pasarlo a minúsculas
   const cleanedQuotedText = quotedMessage.body.trim().replace(/^\*+/, "").toLowerCase();
   
-  // Se aceptan mensajes que inicien con alguno de estos patrones:
-  if (!(cleanedQuotedText.startsWith("recordatorio: tarea incompleta*") ||
-        cleanedQuotedText.startsWith("nueva tarea recibida") ||
-        cleanedQuotedText.startsWith("recordatorio: incidencia") ||
-        cleanedQuotedText.startsWith("solicitud de retroalimentacion para la tarea"))) {
+  // Definir los patrones permitidos
+  const allowedPatterns = [
+    "recordatorio: tarea incompleta",
+    "nueva tarea recibida",
+    "recordatorio: incidencia",
+    "solicitud de retroalimentacion para la tarea"
+  ];
+  
+  // Verificar si el texto comienza con alguno de los patrones permitidos.
+  const isValid = allowedPatterns.some(pattern => cleanedQuotedText.startsWith(pattern));
+  if (!isValid) {
     console.log("El mensaje citado no corresponde a una tarea enviada, recordatorio o solicitud de retroalimentación. Se ignora.");
     return;
   }
-  
+
   // Intentar extraer el ID usando primero el patrón de solicitud de retroalimentación
   let idMatch = quotedMessage.body.match(/solicitud de retroalimentacion para la tarea\s*(\d+):/i);
   // Si no se encuentra, usar el patrón tradicional
@@ -43,7 +49,7 @@ async function processConfirmation(client, message) {
     console.log("No se encontró el ID en el mensaje citado. No se actualizará el estado.");
     return;
   }
-  const incidenciaId = idMatch[1] || idMatch[2];
+  const incidenciaId = idMatch[1] || idMatch[2] || idMatch[3];
 
   const responseText = message.body.toLowerCase();
   const responseWords = new Set(responseText.split(/\s+/));
