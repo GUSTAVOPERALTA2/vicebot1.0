@@ -10,12 +10,21 @@ const { processConfirmation } = require('./confirmationProcessor');
 function normalizeText(text) {
   return text.trim().toLowerCase();
 }
+
+
 async function handleIncidence(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
   
   // Grupo principal de incidencias (por ejemplo, config.groupPruebaId)
   if (chatId === config.groupPruebaId) {
+    
+    // Si el mensaje citado es un recordatorio, procesamos la confirmación
+    if (/^recordatorio:\s*tarea\s+incompleta/i.test(normalizedQuoted)) {
+      console.log("Recordatorio detectado, procesando confirmación.");
+      await processConfirmation(client, message);
+      return;
+    }
     // Si el mensaje cita otro, comprobamos si se usan indicadores de "retro"
     if (message.hasQuotedMsg) {
       // Importar la función normalizeText del feedbackProcessor
