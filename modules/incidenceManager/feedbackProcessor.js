@@ -212,22 +212,46 @@ async function processTeamFeedbackResponse(client, message) {
   
   const quotedMessage = await message.getQuotedMessage();
   const quotedText = quotedMessage.body;
-  const normalizedQuotedText = quotedText.toLowerCase();
+  const normalizedQuotedText = quotedText.trim().toLowerCase();
   
-  if (!normalizedQuotedText.includes("solicitud de retroalimentacion para la tarea")) {
-    console.log("El mensaje citado no corresponde a una solicitud de retroalimentación.");
+  // Definir los patrones permitidos para confirmar que el mensaje citado es de una incidencia válida.
+  const allowedPatterns = [
+    "solicitud de retroalimentacion para la tarea",
+    "recordatorio: tarea incompleta",
+    "nueva tarea recibida"
+  ];
+  
+  // Verificar que el mensaje citado empiece con alguno de los patrones permitidos.
+  const isValid = allowedPatterns.some(pattern => normalizedQuotedText.startsWith(pattern));
+  if (!isValid) {
+    console.log("El mensaje citado no corresponde a una solicitud válida de retroalimentación.");
     return "El mensaje citado no es una solicitud válida de retroalimentación.";
   }
   
-  // Extraemos el ID usando el patrón que se usa en confirmationProcessor
-  const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
-  const match = normalizedQuotedText.match(regex);
-  if (!match) {
+  // Extraer el ID de la incidencia dependiendo del patrón detectado.
+  let incidenceId;
+  if (normalizedQuotedText.startsWith("solicitud de retroalimentacion para la tarea")) {
+    // Ejemplo: "solicitud de retroalimentacion para la tarea 9:"
+    const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
+    const match = normalizedQuotedText.match(regex);
+    if (match) {
+      incidenceId = match[1];
+    }
+  } else if (normalizedQuotedText.startsWith("recordatorio: tarea incompleta") ||
+             normalizedQuotedText.startsWith("nueva tarea recibida")) {
+    // Ejemplo: "recordatorio: tarea incompleta ... ID: 1" o "nueva tarea recibida (ID: 9):"
+    const regex = /ID:\s*(\d+)/i;
+    const match = normalizedQuotedText.match(regex);
+    if (match) {
+      incidenceId = match[1];
+    }
+  }
+  
+  if (!incidenceId) {
     console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
     return "No se pudo extraer el ID de la incidencia del mensaje citado.";
   }
   
-  const incidenceId = match[1];
   console.log("ID extraído del mensaje citado:", incidenceId);
   
   let incidence = await new Promise((resolve, reject) => {
@@ -241,15 +265,18 @@ async function processTeamFeedbackResponse(client, message) {
     return "No se encontró la incidencia correspondiente.";
   }
   
+  // Determinar el equipo a partir del grupo destino
   const team = await determineTeamFromGroup(message);
+  
+  // Detectar el tipo de respuesta en el mensaje del equipo
   const responseType = detectResponseType(client, message.body);
   
-  // Si se detecta confirmación, delegamos a processConfirmation
+  // Si se detecta confirmación (por ejemplo, el mensaje es exactamente "listo"), delegamos a processConfirmation
   if (responseType === "confirmacion") {
     return processConfirmation(client, message);
   }
   
-  // Si no, se asume feedback: se crea el registro de feedback con el comentario completo
+  // En caso contrario, se asume feedback. Se construye el objeto de feedback
   const feedbackRecord = {
     usuario: message.author || message.from,
     comentario: message.body,
@@ -258,7 +285,6 @@ async function processTeamFeedbackResponse(client, message) {
     tipo: "feedbackrespuesta"
   };
   
-  // Se almacena el feedback en la base de datos
   return new Promise((resolve, reject) => {
     incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
       if (err) {
@@ -267,7 +293,6 @@ async function processTeamFeedbackResponse(client, message) {
       }
       console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
       
-      // Luego se envía el mensaje formateado al grupo principal
       const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
                           `${incidence.descripcion}\n\n` +
                           `${team.toUpperCase()} RESPONDE:\n${message.body}`;
@@ -291,6 +316,7 @@ async function processTeamFeedbackResponse(client, message) {
     });
   });
 }
+
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia y construye un mensaje de retroalimentación.
  */
