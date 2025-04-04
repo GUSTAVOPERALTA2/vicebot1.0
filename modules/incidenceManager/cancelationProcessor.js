@@ -2,74 +2,71 @@ const incidenceDB = require('./incidenceDB');
 const { getUser } = require('../../config/userManager');
 
 /**
- * processCancelation - Detecta si un mensaje solicita cancelar una incidencia mediante palabras clave.
+ * processCancelationNewMethod - Procesa una solicitud de cancelación utilizando el método de citar el mensaje original.
  * 
- * Se verifica que el mensaje contenga la palabra "incidencia" junto con alguna palabra o frase de cancelación.
- * Si se cumple, se extrae el ID numérico, se valida que el usuario sea el reportante o admin y se procede a cancelar.
+ * Se utiliza el campo originalMsgId para rastrear la incidencia y, si el mensaje citado se acompaña de un mensaje
+ * cuyo contenido EXACTO se encuentra en las palabras o frases de cancelación definidas en keywords.json, se procede a cancelar.
  * 
- * @param {Object} client - El cliente de WhatsApp.
- * @param {Object} message - El mensaje recibido.
- * @returns {Promise<boolean>} - Devuelve true si el mensaje fue manejado como cancelación, false en caso contrario.
+ * @param {Object} client - Cliente de WhatsApp.
+ * @param {Object} message - Mensaje recibido con la solicitud de cancelación.
+ * @returns {Promise<boolean>} - Devuelve true si se procesó la cancelación, false en caso contrario.
  */
-async function processCancelation(client, message) {
+async function processCancelationNewMethod(client, message) {
   const chat = await message.getChat();
-  const mensajeTexto = message.body.toLowerCase();
+  const text = message.body.toLowerCase().trim();
 
-  // Verificamos que exista la sección "cancelacion" en las keywords
+  // Obtenemos las palabras y frases de cancelación desde keywords.json
   const cancelacionData = client.keywordsData.cancelacion;
   if (!cancelacionData) {
     return false;
   }
-
-  // Comprobar si el mensaje menciona "incidencia" y alguna palabra o frase de cancelación
-  if (
-    mensajeTexto.includes("incidencia") &&
-    (
-      cancelacionData.palabras.some(p => mensajeTexto.includes(p)) ||
-      cancelacionData.frases.some(f => mensajeTexto.includes(f))
-    )
-  ) {
-    // Intentar extraer un número (ID) del mensaje
-    const match = mensajeTexto.match(/(\d+)/);
-    if (match) {
-      const idExtraido = match[1];
+  
+  // Se activa este método solo si se cita un mensaje y el texto coincide EXACTAMENTE con alguna palabra o frase definida
+  const validCancel =
+    cancelacionData.palabras.includes(text) ||
+    cancelacionData.frases.includes(text);
+  
+  if (message.hasQuotedMsg && validCancel) {
+    const quotedMessage = await message.getQuotedMessage();
+    // Usamos el id del mensaje citado para rastrear la incidencia mediante el campo originalMsgId
+    const originalMsgId = quotedMessage.id._serialized;
+    
+    try {
+      const incidence = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(originalMsgId);
+      if (!incidence) {
+        chat.sendMessage("No se encontró la incidencia asociada a ese mensaje.");
+        return true;
+      }
+      
       const senderId = message.author ? message.author : message.from;
       const currentUser = getUser(senderId);
-
+      if (incidence.reportadoPor !== senderId && (!currentUser || currentUser.rol !== 'admin')) {
+        chat.sendMessage("No tienes permisos para cancelar esta incidencia.");
+        return true;
+      }
+      
+      if (incidence.estado !== "pendiente") {
+        chat.sendMessage("La incidencia no se puede cancelar porque no está en estado pendiente.");
+        return true;
+      }
+      
       return new Promise((resolve) => {
-        incidenceDB.getIncidenciaById(idExtraido, (err, incidencia) => {
-          if (err || !incidencia) {
-            chat.sendMessage("No se encontró la incidencia con ese ID.");
-            return resolve(true);
+        incidenceDB.cancelarIncidencia(incidence.id, (err) => {
+          if (err) {
+            chat.sendMessage("Error al cancelar la incidencia.");
+          } else {
+            chat.sendMessage(`La incidencia con ID ${incidence.id} ha sido cancelada.`);
           }
-          if (
-            incidencia.reportadoPor !== senderId &&
-            (!currentUser || currentUser.rol !== 'admin')
-          ) {
-            chat.sendMessage("No tienes permisos para cancelar esta incidencia.");
-            return resolve(true);
-          }
-          if (incidencia.estado !== "pendiente") {
-            chat.sendMessage("La incidencia no se puede cancelar porque no está en estado pendiente.");
-            return resolve(true);
-          }
-          // Proceder a cancelar la incidencia
-          incidenceDB.cancelarIncidencia(idExtraido, (err) => {
-            if (err) {
-              chat.sendMessage("Error al cancelar la incidencia.");
-            } else {
-              chat.sendMessage(`La incidencia con ID ${idExtraido} ha sido cancelada.`);
-            }
-            return resolve(true);
-          });
+          resolve(true);
         });
       });
-    } else {
-      chat.sendMessage("No se pudo extraer el ID de la incidencia.");
+    } catch (error) {
+      chat.sendMessage("Error al buscar la incidencia.");
       return true;
     }
   }
+  
   return false;
 }
 
-module.exports = { processCancelation };
+module.exports = { processCancelationNewMethod };
