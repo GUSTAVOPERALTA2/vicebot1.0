@@ -5,10 +5,14 @@ const {
   processRetroRequest,
   processTeamFeedbackResponse
 } = require('../../modules/incidenceManager/feedbackProcessor');
-const incidenceDB = require('../../modules/incidenceManager/incidenceDB');
+const { processCancelation } = require('../../modules/incidenceManager/cancelationProcessor');
 
 async function handleMessage(client, message) {
   try {
+    // Primero, intentamos procesar una solicitud de cancelación
+    const cancelHandled = await processCancelation(client, message);
+    if (cancelHandled) return; // Si se gestionó la cancelación, se detiene el flujo
+
     const chat = await message.getChat();
     
     if (message.hasQuotedMsg) {
@@ -17,15 +21,15 @@ async function handleMessage(client, message) {
       
       // Si se está respondiendo a una solicitud de retroalimentación, procesar como respuesta del equipo
       if (quotedText.startsWith("*solicitud de retroalimentacion para la tarea")) {
-          await processTeamFeedbackResponse(client, message);
-          return;
+        await processTeamFeedbackResponse(client, message);
+        return;
       }
       
-      // Si no es respuesta a solicitud de retro, pero el mensaje contiene palabras clave de retro, se procesa la solicitud de retroalimentación
+      // Si el mensaje contiene palabras clave de retro, procesar la solicitud de retroalimentación
       const isRetro = await detectRetroRequest(client, message);
       if (isRetro) {
-          await processRetroRequest(client, message);
-          return;
+        await processRetroRequest(client, message);
+        return;
       }
     }
     
@@ -42,5 +46,3 @@ async function handleMessage(client, message) {
 }
 
 module.exports = handleMessage;
-
-//logica igual

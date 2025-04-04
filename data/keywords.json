@@ -80,5 +80,16 @@
         "actualización"
       ]
     }
+  },
+  "cancelacion": {
+    "palabras": [
+      "cancelar",
+      "anular",
+      "desestimar"
+    ],
+    "frases": [
+      "cancelar incidencia",
+      "anular tarea"
+    ]
   }
 }
