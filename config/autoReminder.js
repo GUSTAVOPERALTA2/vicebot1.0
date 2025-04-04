@@ -43,7 +43,7 @@ function checkPendingIncidences(client, initialRun = false) {
     console.error("La base de datos no está inicializada.");
     return;
   }
-  const sql = "SELECT * FROM incidencias WHERE estado != 'completada' AND fechaCreacion < ?";
+  const sql = "SELECT * FROM incidencias WHERE estado NOT IN ('completada','cancelada') AND fechaCreacion < ?";
   db.all(sql, [threshold], (err, rows) => {
     if (err) {
       console.error("Error en recordatorio automático:", err.message);
