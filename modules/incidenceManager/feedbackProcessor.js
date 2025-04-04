@@ -408,6 +408,12 @@ async function processRetroRequest(client, message) {
     await chat.sendMessage("No se encontró la incidencia correspondiente.");
     return;
   }
+
+  // Nueva validación: Si la incidencia ya está cancelada, se impide la solicitud de retroalimentación.
+  if (incidence.estado.toLowerCase() === "cancelada") {
+    await chat.sendMessage("La incidencia está cancelada y no se puede solicitar retroalimentación.");
+    return;
+  }
   const categories = incidence.categoria.split(',').map(c => c.trim().toLowerCase());
   const teamNames = { it: "IT", man: "MANTENIMIENTO", ama: "AMA" };
   let gruposEnviados = [];
