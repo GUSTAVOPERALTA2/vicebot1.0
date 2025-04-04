@@ -192,11 +192,21 @@ function generarComentarios(incidencia, requiredTeams, teamNames) {
   }
   for (let team of requiredTeams) {
     const displayName = teamNames[team] || team.toUpperCase();
-    // Buscar el último feedback para el equipo
-    const record = feedbackHistory.filter(r => r.equipo && r.equipo.toLowerCase() === team).pop();
-    const comentario = record && record.comentario ? record.comentario : "Sin comentarios";
+    const record = feedbackHistory.filter(r => r.equipo?.toLowerCase() === team).pop();
+
+    let comentario = "Sin comentarios";
+
+    if (record) {
+      if (record.comentario?.trim()) {
+        comentario = record.comentario;
+      } else if (record.tipo === "confirmacion") {
+        comentario = "Listo";
+      }
+    }
+
     comentarios += `${displayName}: ${comentario}\n`;
   }
+
   return comentarios;
 }
 
