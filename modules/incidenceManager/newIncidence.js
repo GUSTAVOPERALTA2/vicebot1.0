@@ -126,7 +126,8 @@ async function processNewIncidence(client, message) {
       } else if (teams.length >= 3) {
         teamList = teams.slice(0, teams.length - 1).join(", ") + " y " + teams[teams.length - 1];
       }
-      await chat.sendMessage(`El mensaje se ha enviado al equipo de ${teamList}.`);
+      // Se envía el mensaje al usuario incluyendo el ID de la incidencia.
+      await chat.sendMessage(`El mensaje se ha enviado al equipo de ${teamList}.\nID: ${lastID}`);
     }
   });
 }

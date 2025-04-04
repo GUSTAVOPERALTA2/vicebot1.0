@@ -130,6 +130,7 @@ async function processFeedbackResponse(client, message, incidence) {
       // Luego se envía el mensaje al grupo principal
       const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
             `${incidence.descripcion}\n\n` +
+            `ID: ${incidence.id}\n\n` +
             `${team.toUpperCase()} RESPONDE:\n${message.body}`;
       client.getChatById(config.groupPruebaId)
         .then(mainGroupChat => {
