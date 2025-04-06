@@ -4,15 +4,16 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * exportCSV - Exporta las incidencias de la BD a un archivo CSV,
- * excluyendo campos no relevantes y formateando feedbackHistory y confirmaciones para facilitar su lectura.
+ * exportCSV - Exporta las incidencias de la BD a un archivo CSV.
+ * Se seleccionan únicamente las columnas relevantes (excluyendo uniqueMessageId, originalMsgId y grupoOrigen)
+ * y se formatean los campos confirmaciones y feedbackHistory para que sean legibles.
  * El archivo se genera en /data/incidencias_export.csv.
  * 
- * @returns {Promise<string>} - Promesa que se resuelve con la ruta del archivo generado.
+ * @returns {Promise<string>} - Una promesa que se resuelve con la ruta del archivo generado.
  */
 function exportCSV() {
   return new Promise((resolve, reject) => {
-    // Ruta a la base de datos (desde /config, subimos a /data)
+    // Ruta a la base de datos (desde /config subimos un nivel a /data)
     const dbPath = path.join(__dirname, '../data/incidencias.db');
     const db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
@@ -23,7 +24,7 @@ function exportCSV() {
       }
     });
 
-    // Seleccionamos solo las columnas importantes
+    // Consulta: Seleccionamos solo las columnas importantes
     const sql = `SELECT id, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, feedbackHistory, media, fechaCancelacion
                  FROM incidencias`;
     db.all(sql, (err, rows) => {
@@ -39,21 +40,20 @@ function exportCSV() {
         return reject(new Error("No hay incidencias"));
       }
       
-      // Definir los headers para el CSV (excluyendo campos no relevantes)
+      // Definir headers para el CSV (en orden deseado)
       const headers = ['ID', 'Descripcion', 'ReportadoPor', 'FechaCreacion', 'Estado', 'Categoria', 'Confirmaciones', 'FeedbackHistory', 'Media', 'FechaCancelacion'].join(',') + '\n';
       
-      // Procesamos cada fila y formateamos confirmaciones y feedbackHistory
+      // Procesar cada fila y formatear confirmaciones y feedbackHistory
       const csvRows = rows.map(row => {
-        // Formatear feedbackHistory para que sea legible
+        // Formatear feedbackHistory para que cada registro aparezca en una nueva línea
         let feedbackFormatted = "";
         if (row.feedbackHistory) {
           try {
             const feedbackArray = JSON.parse(row.feedbackHistory);
             if (Array.isArray(feedbackArray) && feedbackArray.length > 0) {
               feedbackFormatted = feedbackArray.map(fb => {
-                // Se formatea cada entrada de feedback
                 return `Equipo: ${fb.equipo || ''} - Comentario: ${fb.comentario || ''} - Fecha: ${fb.fecha || ''}`;
-              }).join(" | ");
+              }).join("\n");  // Saltos de línea para cada registro
             } else {
               feedbackFormatted = row.feedbackHistory;
             }
@@ -62,7 +62,7 @@ function exportCSV() {
           }
         }
         
-        // Formatear confirmaciones de forma legible:
+        // Formatear confirmaciones de forma legible, separando cada entrada en una línea
         let confirmacionesFormatted = "";
         if (row.confirmaciones) {
           try {
@@ -70,14 +70,13 @@ function exportCSV() {
             if (conf && typeof conf === 'object') {
               confirmacionesFormatted = Object.entries(conf)
                 .map(([key, val]) => {
-                  // Si se puede interpretar como fecha, se formatea
                   let formattedVal = val;
                   if (val && !isNaN(Date.parse(val))) {
                     formattedVal = new Date(val).toLocaleString();
                   }
                   return `${key.toUpperCase()}: ${formattedVal}`;
                 })
-                .join(" | ");
+                .join("\n");
             } else {
               confirmacionesFormatted = row.confirmaciones;
             }
@@ -86,7 +85,7 @@ function exportCSV() {
           }
         }
         
-        // Valores a exportar en el orden deseado
+        // Valores a exportar en el orden definido
         const values = [
           row.id,
           row.descripcion,
@@ -100,7 +99,7 @@ function exportCSV() {
           row.fechaCancelacion
         ];
         
-        // Escapar los valores que puedan contener comas, saltos de línea o comillas
+        // Escapar valores que puedan contener comas, saltos de línea o comillas dobles
         const formattedValues = values.map(value => {
           if (value === null || value === undefined) return '';
           let strValue = value.toString().replace(/"/g, '""');
@@ -114,7 +113,8 @@ function exportCSV() {
       }).join('\n');
       
       const csvContent = headers + csvRows;
-      const outputPath = path.join(__dirname, '../data/incidencias_export.csv');
+      // Ruta de salida: /data/incidencias_export.csv (desde /config, subimos un nivel a /data)
+      const outputPath = path.join(__dirname, '../data/reports/incidencias_export.csv');
       
       fs.writeFile(outputPath, csvContent, 'utf8', (err) => {
         if (err) {
@@ -135,8 +135,6 @@ module.exports = { exportCSV };
 
 if (require.main === module) {
   exportCSV()
-    .then(() => console.log("Reporte generado."))
+    .then((outputPath) => console.log("Reporte generado en:", outputPath))
     .catch(err => console.error("Error:", err));
 }
-
-//nuevo
