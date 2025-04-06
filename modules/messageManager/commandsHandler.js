@@ -51,7 +51,8 @@ async function handleCommands(client, message) {
       "*/registerUser <id> | <nombre-apellido> | <cargo> | <rol>* \n Registra un usuario.\n\n" +
       "*/editUser <id> | <nombre-apellido> | <cargo> | <rol>* \n Edita la información de un usuario.\n\n" +
       "*/removeUser <id>* \n Elimina un usuario.\n\n" +
-      "*/viewUser* \n Muestra la lista de usuarios registrados.\n\n";
+      "*/viewUser* \n Muestra la lista de usuarios registrados.\n\n" +
+      "*/generarReporte* \n Generar el reporte de incidencias.\n\n";
       
     await chat.sendMessage(helpAdminMessage);
     return true;
@@ -85,6 +86,49 @@ async function handleCommands(client, message) {
     return true;
   }
 
+  // Comando: /generarReporte (solo admin)
+  if (normalizedBody.startsWith('/generarreporte')) {
+    const currentUser = getUser(senderId);
+    if (!currentUser || currentUser.rol !== 'admin') {
+      await chat.sendMessage("No tienes permisos para ejecutar este comando.");
+      return true;
+    }
+    // Importar el módulo que genera el CSV y los módulos necesarios para enviar archivos
+    const { exportCSV } = require('../../config/exportCsv');
+    const { MessageMedia } = require('whatsapp-web.js');
+    const fs = require('fs');
+    const path = require('path');
+  
+    // Llamamos a exportCSV() y esperamos a que se genere el archivo
+    exportCSV()
+      .then(() => {
+        // Ruta del archivo generado
+        const filePath = path.join(__dirname, '../../data/incidencias_export.csv');
+        if (fs.existsSync(filePath)) {
+          // Leer el archivo en base64 para enviarlo como media
+          const fileData = fs.readFileSync(filePath, { encoding: 'base64' });
+          const media = new MessageMedia('text/csv', fileData, 'incidencias_export.csv');
+          // Enviar el archivo al grupo principal (groupPruebaId)
+          client.getChatById(config.groupPruebaId)
+            .then(groupChat => {
+              groupChat.sendMessage(media);
+              groupChat.sendMessage("Reporte generado y enviado al grupo principal.");
+            })
+            .catch(err => {
+              console.error("Error al enviar reporte al grupo principal:", err);
+              chat.sendMessage("Error al enviar el reporte al grupo principal.");
+            });
+        } else {
+          chat.sendMessage("El reporte no se encontró.");
+        }
+      })
+      .catch(err => {
+        console.error("Error al generar el reporte:", err);
+        chat.sendMessage("Error al generar el reporte.");
+      });
+    return true;
+  }
+  
   // Comando: /reloadkeywords
   if (normalizedBody.startsWith('/reloadkeywords')) {
     const currentUser = getUser(senderId);
