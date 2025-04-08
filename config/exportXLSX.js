@@ -3,7 +3,7 @@ const sqlite3 = require('sqlite3').verbose();
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
-const { formatDate } = require('./dateUtils');  // Importa el formateador
+const { formatDate } = require('./dateUtils'); // Importa el formateador de fechas
 
 /**
  * exportXLSX - Exporta las incidencias de la BD a un archivo XLSX.
@@ -16,7 +16,7 @@ const { formatDate } = require('./dateUtils');  // Importa el formateador
  */
 function exportXLSX() {
   return new Promise((resolve, reject) => {
-    // Ruta a la base de datos (desde /config, subimos a /data)
+    // Ruta a la base de datos (desde /config, subimos un nivel a /data)
     const dbPath = path.join(__dirname, '../data/incidencias.db');
     const db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
@@ -26,8 +26,7 @@ function exportXLSX() {
       console.log("Base de datos abierta correctamente.");
     });
 
-    // Consulta: Seleccionamos solo las col
-    //Columnas relevantes
+    // Consulta: Seleccionamos solo las columnas relevantes
     const sql = `
       SELECT id, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, feedbackHistory, fechaCancelacion
       FROM incidencias
@@ -116,7 +115,8 @@ function exportXLSX() {
                   incidenciaId: row.id,
                   equipo: fb.equipo || '',
                   comentario: fb.comentario || '',
-                  fecha: fb.fecha || ''
+                  // Formatear la fecha del feedback con la función centralizada
+                  fecha: fb.fecha ? formatDate(fb.fecha) : ''
                 });
               });
             }
@@ -126,12 +126,12 @@ function exportXLSX() {
         }
       });
 
-      // Dar formato a los encabezados (opcional: negrita)
+      // Aplicar formato a los encabezados (negrita)
       [incidenciasSheet, feedbackSheet].forEach(sheet => {
         sheet.getRow(1).font = { bold: true };
       });
 
-      // Ruta de salida para el XLSX
+      // Generar el archivo Excel
       const outputPath = path.join(__dirname, '../data/incidencias_export.xlsx');
       workbook.xlsx.writeFile(outputPath)
         .then(() => {
