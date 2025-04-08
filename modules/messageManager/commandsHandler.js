@@ -3,6 +3,7 @@ const config = require('../../config/config');
 const { addEntry, removeEntry, editEntry, loadKeywords } = require('../../config/keywordsManager');
 // Actualizamos la ruta: ahora se requiere incidenceDB desde incidenceManager
 const incidenceDB = require('../incidenceManager/incidenceDB');
+const { export_XLSX } = require('../../config/exportXLSX');
 const { registerUser, getUser, loadUsers, saveUsers } = require('../../config/userManager');
 
 async function handleCommands(client, message) {
@@ -85,7 +86,6 @@ async function handleCommands(client, message) {
     await chat.sendMessage(messageText);
     return true;
   }
-
   // Comando: /generarReporte (solo admin)
   if (normalizedBody.startsWith('/generarreporte')) {
     const currentUser = getUser(senderId);
@@ -93,42 +93,33 @@ async function handleCommands(client, message) {
       await chat.sendMessage("No tienes permisos para ejecutar este comando.");
       return true;
     }
-    // Importar el módulo que genera el CSV y los módulos necesarios para enviar archivos
-    const { exportCSV } = require('../../config/exportCsv');
-    const { MessageMedia } = require('whatsapp-web.js');
-    const fs = require('fs');
-    const path = require('path');
-  
-    // Llamamos a exportCSV() y esperamos a que se genere el archivo
-    exportCSV()
-      .then(() => {
-        // Ruta del archivo generado
-        const filePath = path.join(__dirname, '../../data/incidencias_export.csv');
-        if (fs.existsSync(filePath)) {
-          // Leer el archivo en base64 para enviarlo como media
-          const fileData = fs.readFileSync(filePath, { encoding: 'base64' });
-          const media = new MessageMedia('text/csv', fileData, 'incidencias_export.csv');
-          // Enviar el archivo al grupo principal (groupPruebaId)
+    // Llamar al módulo para generar el XLSX
+    exportXLSX()
+      .then((outputPath) => {
+        if (fs.existsSync(outputPath)) {
+          const fileData = fs.readFileSync(outputPath, { encoding: 'base64' });
+          const media = new MessageMedia('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileData, 'incidencias_export.xlsx');
+          // Enviar el archivo al grupo principal
           client.getChatById(config.groupPruebaId)
             .then(groupChat => {
               groupChat.sendMessage(media);
-              groupChat.sendMessage("Reporte generado y enviado al grupo principal.");
+              groupChat.sendMessage("Reporte XLSX generado y enviado al grupo principal.");
             })
             .catch(err => {
-              console.error("Error al enviar reporte al grupo principal:", err);
+              console.error("Error al enviar el reporte:", err);
               chat.sendMessage("Error al enviar el reporte al grupo principal.");
             });
         } else {
-          chat.sendMessage("El reporte no se encontró.");
+          chat.sendMessage("No se encontró el reporte generado.");
         }
       })
       .catch(err => {
         console.error("Error al generar el reporte:", err);
         chat.sendMessage("Error al generar el reporte.");
       });
-    return true;
+    return true;  
   }
-  
+
   // Comando: /reloadkeywords
   if (normalizedBody.startsWith('/reloadkeywords')) {
     const currentUser = getUser(senderId);
