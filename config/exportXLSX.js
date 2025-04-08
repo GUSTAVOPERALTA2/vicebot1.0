@@ -3,6 +3,7 @@ const sqlite3 = require('sqlite3').verbose();
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
+const { formatDate } = require('./dateUtils');  // Importa el formateador
 
 /**
  * exportXLSX - Exporta las incidencias de la BD a un archivo XLSX.
@@ -98,11 +99,11 @@ function exportXLSX() {
           id: row.id,
           descripcion: row.descripcion,
           reportadoPor: row.reportadoPor,
-          fechaCreacion: row.fechaCreacion,
+          fechaCreacion: formatDate(row.fechaCreacion),
           estado: row.estado,
           categoria: row.categoria,
           confirmaciones: confirmacionesFormatted,
-          fechaCancelacion: row.fechaCancelacion
+          fechaCancelacion: formatDate(row.fechaCancelacion)
         });
 
         // Desnormalizar el feedback: cada registro en una fila de "Feedback"

@@ -1,6 +1,7 @@
 const moment = require('moment-timezone');
 const config = require('./config');
 const incidenceDB = require('../modules/incidenceManager/incidenceDB');
+const { formatDate } = require('./dateUtils');  // Importamos el formateador central
 
 /**
  * calcularTiempoSinRespuesta - Calcula el tiempo transcurrido entre la fecha de creación y el momento actual.
@@ -79,7 +80,7 @@ function checkPendingIncidences(client, initialRun = false) {
         }
         
         const tiempoSinRespuesta = calcularTiempoSinRespuesta(row.fechaCreacion);
-        const fechaFormateada = moment(row.fechaCreacion).format("DD/MM/YYYY hh:mm a");
+        const fechaFormateada = formatDate(row.fechaCreacion);
         const msg = `*RECORDATORIO: TAREA INCOMPLETA*\n\n` +
                     `${row.descripcion}\n\n` +
                     `Fecha de creación: ${fechaFormateada}\n` +
