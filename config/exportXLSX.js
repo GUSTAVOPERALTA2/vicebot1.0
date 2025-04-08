@@ -13,7 +13,7 @@ const path = require('path');
  *
  * @returns {Promise<string>} - Promesa que se resuelve con la ruta del archivo XLSX generado.
  */
-function export_XLSX() {
+function exportXLSX() {
   return new Promise((resolve, reject) => {
     // Ruta a la base de datos (desde /config, subimos a /data)
     const dbPath = path.join(__dirname, '../data/incidencias.db');
@@ -25,7 +25,8 @@ function export_XLSX() {
       console.log("Base de datos abierta correctamente.");
     });
 
-    // Consulta: Seleccionamos solo las columnas relevantes
+    // Consulta: Seleccionamos solo las col
+    //Columnas relevantes
     const sql = `
       SELECT id, descripcion, reportadoPor, fechaCreacion, estado, categoria, confirmaciones, feedbackHistory, fechaCancelacion
       FROM incidencias
@@ -146,10 +147,10 @@ function export_XLSX() {
   });
 }
 
-module.exports = { export_XLSX };
+module.exports = { exportXLSX };
 
 if (require.main === module) {
-  export_XLSX()
+  exportXLSX()
     .then(outputPath => console.log("Reporte XLSX generado en:", outputPath))
     .catch(err => console.error("Error:", err));
 }

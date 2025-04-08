@@ -1,9 +1,11 @@
 // vicebot/modules/messageManager/commandsHandler.js
 const config = require('../../config/config');
 const { addEntry, removeEntry, editEntry, loadKeywords } = require('../../config/keywordsManager');
-// Actualizamos la ruta: ahora se requiere incidenceDB desde incidenceManager
+const WhatsappWeb = require('whatsapp-web.js'); // Importamos el módulo completo
+const fs = require('fs');
+const path = require('path');
 const incidenceDB = require('../incidenceManager/incidenceDB');
-const { export_XLSX } = require('../../config/exportXLSX');
+const { exportXLSX } = require('../../config/exportXLSX');
 const { registerUser, getUser, loadUsers, saveUsers } = require('../../config/userManager');
 
 async function handleCommands(client, message) {
@@ -86,20 +88,26 @@ async function handleCommands(client, message) {
     await chat.sendMessage(messageText);
     return true;
   }
-  // Comando: /generarReporte (solo admin)
+  
+  // Bloque para el comando: /generarReporte (solo para admin)
   if (normalizedBody.startsWith('/generarreporte')) {
     const currentUser = getUser(senderId);
     if (!currentUser || currentUser.rol !== 'admin') {
       await chat.sendMessage("No tienes permisos para ejecutar este comando.");
       return true;
     }
-    // Llamar al módulo para generar el XLSX
+  
     exportXLSX()
       .then((outputPath) => {
         if (fs.existsSync(outputPath)) {
           const fileData = fs.readFileSync(outputPath, { encoding: 'base64' });
-          const media = new MessageMedia('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileData, 'incidencias_export.xlsx');
-          // Enviar el archivo al grupo principal
+          // Creamos el objeto MessageMedia usando WhatsappWeb.MessageMedia
+          const media = new WhatsappWeb.MessageMedia(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            fileData,
+            'incidencias_export.xlsx'
+          );
+          // Envío al grupo principal usando el ID definido en config
           client.getChatById(config.groupPruebaId)
             .then(groupChat => {
               groupChat.sendMessage(media);
@@ -117,7 +125,7 @@ async function handleCommands(client, message) {
         console.error("Error al generar el reporte:", err);
         chat.sendMessage("Error al generar el reporte.");
       });
-    return true;  
+    return true;
   }
 
   // Comando: /reloadkeywords
