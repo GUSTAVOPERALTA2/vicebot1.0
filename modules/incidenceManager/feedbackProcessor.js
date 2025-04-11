@@ -212,8 +212,78 @@ async function processTeamFeedbackResponse(client, message) {
   }
   
   const quotedMessage = await message.getQuotedMessage();
-  // Normalizamos el texto citado: eliminamos asteriscos, espacios extra y convertimos a minúsculas.
+  // Normalizamos el mensaje citado: quitamos asteriscos, espacios y convertimos a minúsculas.
   const normalizedQuotedText = quotedMessage.body.replace(/\*/g, '').trim().toLowerCase();
+  
+  // Si el mensaje citado ya es una respuesta de retroalimentación, usamos un branch especial.
+  if (normalizedQuotedText.startsWith("respuesta de retroalimentacion")) {
+    // Ejemplo esperado en el mensaje citado: 
+    // "respuesta de retroalimentacion
+    //  Ayuda tv
+    //  id: 6
+    //  incidencia: Ayuda tv ..."
+    const regex = /id:\s*(\d+)/i;
+    const match = normalizedQuotedText.match(regex);
+    if (!match) {
+      console.log("No se pudo extraer el ID de la incidencia del mensaje citado.");
+      return "No se pudo extraer el ID de la incidencia del mensaje citado.";
+    }
+    const incidenceId = match[1];
+    console.log("ID extraído del mensaje citado:", incidenceId);
+    
+    // Buscar la incidencia en la base de datos usando el ID extraído
+    let incidence = await new Promise((resolve, reject) => {
+      incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
+        if (err) return reject(err);
+        resolve(row);
+      });
+    });
+    if (!incidence) {
+      console.log("No se encontró la incidencia correspondiente para el ID:", incidenceId);
+      return "No se encontró la incidencia correspondiente.";
+    }
+    
+    // Determinar el equipo (por ejemplo, usando una función que analiza el grupo donde se envía el mensaje)
+    const team = await determineTeamFromGroup(message);
+    // Obtener el identificador del usuario que envía la respuesta
+    const currentUser = message.author ? message.author : message.from;
+    
+    // Construir el registro de feedback y actualizar la base de datos
+    const feedbackRecord = {
+      usuario: currentUser,
+      comentario: message.body,
+      fecha: new Date().toISOString(),
+      equipo: team,
+      tipo: "feedbackrespuesta"
+    };
+    
+    await new Promise((resolve, reject) => {
+      incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+        if (err) {
+          console.error("Error al registrar el feedback:", err);
+          return reject("Error al registrar el feedback.");
+        }
+        resolve();
+      });
+    });
+    
+    // Formatear el mensaje a reenviar
+    const responseMsg = `Respuesta de ${currentUser}:\n${message.body}\nID: ${incidence.id}\nIncidencia: ${incidence.descripcion}`;
+    
+    // Enviar el mensaje al grupo destino según la categoría de la incidencia
+    // Se asume que config.destinoGrupos es un objeto que mapea cada categoría a un ID de grupo
+    client.getChatById(config.destinoGrupos[incidence.categoria.trim().toLowerCase()])
+      .then(groupChat => {
+        groupChat.sendMessage(responseMsg)
+          .then(() => console.log("Mensaje reenviado al grupo destino:", responseMsg))
+          .catch(err => console.error("Error al enviar el mensaje al grupo destino:", err));
+      })
+      .catch(err => console.error("Error al obtener el chat destino:", err));
+      
+    return "Feedback enviado al grupo destino.";
+  }
+  
+  // Resto de la función (manejo de mensajes citados que son solicitudes de retroalimentación o recordatorios)
   
   // Determinar el tipo de mensaje citado según su inicio
   let messageType = null;
@@ -231,14 +301,12 @@ async function processTeamFeedbackResponse(client, message) {
   // Extraer el ID de la incidencia según el tipo de mensaje citado
   let incidenceId;
   if (messageType === "retroalimentacion") {
-    // Ejemplo esperado: "solicitud de retroalimentacion para la tarea 9:"
     const regex = /solicitud de retroalimentacion para la tarea\s*(\d+):/i;
     const match = normalizedQuotedText.match(regex);
     if (match) {
       incidenceId = match[1];
     }
   } else if (messageType === "recordatorio" || messageType === "nueva") {
-    // Ejemplo esperado: "recordatorio: tarea incompleta ... ID: 2" o "nueva tarea recibida (ID: 9):"
     const regex = /id:\s*(\d+)/i;
     const match = normalizedQuotedText.match(regex);
     if (match) {
@@ -253,7 +321,7 @@ async function processTeamFeedbackResponse(client, message) {
   
   console.log("ID extraído del mensaje citado:", incidenceId);
   
-  // Obtener la incidencia de la base de datos
+  // Obtener la incidencia
   let incidence = await new Promise((resolve, reject) => {
     incidenceDB.getIncidenciaById(incidenceId, (err, row) => {
       if (err) return reject(err);
@@ -268,18 +336,17 @@ async function processTeamFeedbackResponse(client, message) {
   // Determinar el equipo a partir del grupo destino
   const team = await determineTeamFromGroup(message);
   
-  // Detectar el tipo de respuesta en el mensaje del equipo (por ejemplo, "listo" para confirmación, o ausencia de tokens)
+  // Detectar el tipo de respuesta en el mensaje (por ejemplo, "listo" para confirmación)
   const responseType = detectResponseType(client, message.body);
   
-  // Diferenciar el flujo según el tipo de mensaje citado:
+  // Flujo según el tipo de mensaje citado
   if (messageType === "recordatorio" || messageType === "nueva") {
-    // Si se responde a un recordatorio (o a una nueva tarea)...
     if (responseType === "confirmacion") {
       console.log(`Procesando ${messageType} como confirmación.`);
       return processConfirmation(client, message);
     } else {
-      // Si la respuesta no contiene palabras de confirmación, se procesa como feedback (retroalimentación).
       console.log(`Procesando ${messageType} como retroalimentación.`);
+      // Procesar feedback para recordatorio o nueva tarea
       const feedbackRecord = {
         usuario: message.author || message.from,
         comentario: message.body,
@@ -287,7 +354,6 @@ async function processTeamFeedbackResponse(client, message) {
         equipo: team,
         tipo: "feedbackrespuesta"
       };
-      
       return new Promise((resolve, reject) => {
         incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
           if (err) {
@@ -295,7 +361,6 @@ async function processTeamFeedbackResponse(client, message) {
             return reject("Error al registrar el feedback.");
           }
           console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
-          
           const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
                               `${incidence.descripcion}\n` +
                               `ID: ${incidence.id}\n\n` +
@@ -320,8 +385,6 @@ async function processTeamFeedbackResponse(client, message) {
       });
     }
   } else if (messageType === "retroalimentacion") {
-    // Para el caso en el que el mensaje citado es de solicitud de retroalimentación,
-    // se decide de forma similar:
     if (responseType === "confirmacion") {
       console.log("Respuesta de confirmación detectada en solicitud de retroalimentación.");
       return processConfirmation(client, message);
@@ -334,7 +397,6 @@ async function processTeamFeedbackResponse(client, message) {
         equipo: team,
         tipo: "feedbackrespuesta"
       };
-      
       return new Promise((resolve, reject) => {
         incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
           if (err) {
@@ -342,7 +404,6 @@ async function processTeamFeedbackResponse(client, message) {
             return reject("Error al registrar el feedback.");
           }
           console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
-          
           const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
                               `${incidence.descripcion}\n` +
                               `ID: ${incidence.id}\n\n` +
@@ -352,7 +413,7 @@ async function processTeamFeedbackResponse(client, message) {
               mainGroupChat.sendMessage(responseMsg)
                 .then(() => {
                   console.log("Mensaje enviado al grupo principal:", responseMsg);
-                  resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
+                  resolve("Feedback registrado y mensaje enviado al grupo principal.");
                 })
                 .catch(err => {
                   console.error("Error al enviar mensaje al grupo principal:", err);
