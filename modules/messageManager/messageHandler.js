@@ -19,8 +19,12 @@ async function handleMessage(client, message) {
       const quotedMessage = await message.getQuotedMessage();
       const quotedText = quotedMessage.body.toLowerCase();
       
-      // Si se está respondiendo a una solicitud de retroalimentación, procesar como respuesta del equipo
-      if (quotedText.startsWith("*solicitud de retroalimentacion para la tarea")) {
+      // Si se responde a un mensaje de solicitud de retroalimentación o a un recordatorio, lo tratamos como feedback
+      if (
+        quotedText.startsWith("*solicitud de retroalimentacion para la tarea") ||
+        quotedText.startsWith("*recordatorio: tarea incompleta") ||
+        quotedText.startsWith("*recordatorio:")
+      ) {
         await processTeamFeedbackResponse(client, message);
         return;
       }
