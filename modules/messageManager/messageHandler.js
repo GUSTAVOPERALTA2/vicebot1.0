@@ -5,12 +5,12 @@ const {
   processRetroRequest,
   processTeamFeedbackResponse
 } = require('../../modules/incidenceManager/feedbackProcessor');
-const { processCancelation } = require('../../modules/incidenceManager/cancelationProcessor');
+const { processCancelationNewMethod } = require('../../modules/incidenceManager/cancelationProcessor');
 
 async function handleMessage(client, message) {
   try {
     // Primero, intentamos procesar una solicitud de cancelación
-    const cancelHandled = await processCancelation(client, message);
+    const cancelHandled = await processCancelationNewMethod(client, message);
     if (cancelHandled) return; // Si se gestionó la cancelación, se detiene el flujo
 
     const chat = await message.getChat();
