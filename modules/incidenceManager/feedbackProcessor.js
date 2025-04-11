@@ -130,8 +130,8 @@ async function processFeedbackResponse(client, message, incidence) {
       // Luego se envía el mensaje al grupo principal
       const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
             `${incidence.descripcion}\n\n` +
-            `ID: ${incidence.id}\n\n` +
-            `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+            `${team.toUpperCase()} RESPONDE:\n${message.body}` +
+            `ID: ${incidence.id}\n\n`;
       client.getChatById(config.groupPruebaId)
         .then(mainGroupChat => {
           mainGroupChat.sendMessage(responseMsg)
@@ -363,8 +363,8 @@ async function processTeamFeedbackResponse(client, message) {
           console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
           const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
                               `${incidence.descripcion}\n` +
-                              `ID: ${incidence.id}\n\n` +
-                              `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+                              `${team.toUpperCase()} RESPONDE:\n${message.body}` +
+                              `ID: ${incidence.id}\n\n`;
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
               mainGroupChat.sendMessage(responseMsg)
@@ -406,8 +406,8 @@ async function processTeamFeedbackResponse(client, message) {
           console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
           const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
                               `${incidence.descripcion}\n` +
-                              `ID: ${incidence.id}\n\n` +
-                              `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+                              `${team.toUpperCase()} RESPONDE:\n${message.body}` +
+                              `ID: ${incidence.id}\n\n`;
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
               mainGroupChat.sendMessage(responseMsg)
