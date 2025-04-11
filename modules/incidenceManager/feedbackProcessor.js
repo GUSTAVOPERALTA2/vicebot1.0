@@ -268,23 +268,18 @@ async function processTeamFeedbackResponse(client, message) {
   // Determinar el equipo a partir del grupo destino
   const team = await determineTeamFromGroup(message);
   
-  // Detectar el tipo de respuesta en el mensaje del equipo (por ejemplo, "listo" para confirmación)
+  // Detectar el tipo de respuesta en el mensaje del equipo (por ejemplo, "listo" para confirmación, o ausencia de tokens)
   const responseType = detectResponseType(client, message.body);
   
-  // Flujo según el tipo de mensaje citado:
-  // Para "recordatorio" y "nueva", se procesa siempre como confirmación.
+  // Diferenciar el flujo según el tipo de mensaje citado:
   if (messageType === "recordatorio" || messageType === "nueva") {
-    console.log(`Procesando ${messageType} como confirmación.`);
-    return processConfirmation(client, message);
-  } 
-  // Para "retroalimentacion", se decide según el contenido de la respuesta
-  else if (messageType === "retroalimentacion") {
+    // Si se responde a un recordatorio (o a una nueva tarea)...
     if (responseType === "confirmacion") {
-      console.log("Respuesta de confirmación detectada en solicitud de retroalimentación.");
+      console.log(`Procesando ${messageType} como confirmación.`);
       return processConfirmation(client, message);
     } else {
-      console.log("Procesando respuesta de retroalimentación (feedback).");
-      // Construir el objeto de feedback
+      // Si la respuesta no contiene palabras de confirmación, se procesa como feedback (retroalimentación).
+      console.log(`Procesando ${messageType} como retroalimentación.`);
       const feedbackRecord = {
         usuario: message.author || message.from,
         comentario: message.body,
@@ -302,9 +297,9 @@ async function processTeamFeedbackResponse(client, message) {
           console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
           
           const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
-                              `${incidence.descripcion}\n\n` +
+                              `${incidence.descripcion}\n` +
+                              `ID: ${incidence.id}\n\n` +
                               `${team.toUpperCase()} RESPONDE:\n${message.body}`;
-          
           client.getChatById(config.groupPruebaId)
             .then(mainGroupChat => {
               mainGroupChat.sendMessage(responseMsg)
@@ -314,19 +309,65 @@ async function processTeamFeedbackResponse(client, message) {
                 })
                 .catch(err => {
                   console.error("Error al enviar mensaje al grupo principal:", err);
-                  resolve("Feedback del equipo registrado correctamente, pero error al enviar mensaje al grupo principal.");
+                  resolve("Feedback registrado, pero error al enviar mensaje al grupo principal.");
                 });
             })
             .catch(err => {
               console.error("Error al obtener chat principal:", err);
-              resolve("Feedback del equipo registrado correctamente, pero error al obtener chat principal.");
+              resolve("Feedback registrado, pero error al obtener chat principal.");
+            });
+        });
+      });
+    }
+  } else if (messageType === "retroalimentacion") {
+    // Para el caso en el que el mensaje citado es de solicitud de retroalimentación,
+    // se decide de forma similar:
+    if (responseType === "confirmacion") {
+      console.log("Respuesta de confirmación detectada en solicitud de retroalimentación.");
+      return processConfirmation(client, message);
+    } else {
+      console.log("Procesando respuesta de retroalimentación (feedback).");
+      const feedbackRecord = {
+        usuario: message.author || message.from,
+        comentario: message.body,
+        fecha: new Date().toISOString(),
+        equipo: team,
+        tipo: "feedbackrespuesta"
+      };
+      
+      return new Promise((resolve, reject) => {
+        incidenceDB.updateFeedbackHistory(incidence.id, feedbackRecord, (err) => {
+          if (err) {
+            console.error("Error al registrar el feedback:", err);
+            return reject("Error al registrar el feedback.");
+          }
+          console.log(`Feedback registrado para la incidencia ID ${incidence.id}:`, feedbackRecord);
+          
+          const responseMsg = `RESPUESTA DE RETROALIMENTACION\n` +
+                              `${incidence.descripcion}\n` +
+                              `ID: ${incidence.id}\n\n` +
+                              `${team.toUpperCase()} RESPONDE:\n${message.body}`;
+          client.getChatById(config.groupPruebaId)
+            .then(mainGroupChat => {
+              mainGroupChat.sendMessage(responseMsg)
+                .then(() => {
+                  console.log("Mensaje enviado al grupo principal:", responseMsg);
+                  resolve("Feedback del equipo registrado correctamente y mensaje enviado al grupo principal.");
+                })
+                .catch(err => {
+                  console.error("Error al enviar mensaje al grupo principal:", err);
+                  resolve("Feedback registrado, pero error al enviar mensaje al grupo principal.");
+                });
+            })
+            .catch(err => {
+              console.error("Error al obtener chat principal:", err);
+              resolve("Feedback registrado, pero error al obtener chat principal.");
             });
         });
       });
     }
   }
 }
-
 
 /**
  * getFeedbackConfirmationMessage - Consulta en la BD la incidencia y construye un mensaje de retroalimentación.
