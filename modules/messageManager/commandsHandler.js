@@ -89,6 +89,37 @@ async function handleCommands(client, message) {
     return true;
   }
   
+  //Bloque para el comando /removekeyword (solo para administradores)
+  if (normalizedBody.startsWith('/removekeyword')) {
+    const currentUser = getUser(senderId);
+    if (!currentUser || currentUser.rol !== 'admin') {
+      await chat.sendMessage("No tienes permisos para ejecutar este comando.");
+      return true;
+    }
+    // El formato esperado: /removekeyword <categoria> <tipo> <entrada>
+    // Donde <categoria> puede ser "it", "ama", "man" o "confirmacion" (dependiendo de tu estructura)
+    // Y <tipo> puede ser "p" para palabra o "f" para frase.
+    const commandContent = body.substring('/removekeyword'.length).trim();
+    const parts = commandContent.split(' ');
+    if (parts.length < 3) {
+      await chat.sendMessage("Formato inválido. Uso: /removekeyword <categoria> <tipo> <entrada>");
+      return true;
+    }
+    const categoria = parts[0].toLowerCase();
+    const tipo = parts[1].toLowerCase();
+    const entrada = parts.slice(2).join(' ').trim();
+  
+    // Intenta remover la entrada. La función removeEntry ya se encarga de normalizar (minusculas y trim).
+    const result = removeEntry(categoria, tipo, entrada);
+  
+    if (result) {
+      await chat.sendMessage(`La entrada "${entrada}" se ha removido de la categoría "${categoria}" (tipo ${tipo}).`);
+    } else {
+      await chat.sendMessage(`No se pudo remover la entrada "${entrada}". Verifica que exista y el formato sea correcto.`);
+    }
+    return true;
+  }
+  
   // Bloque para el comando: /generarReporte (solo para admin)
   if (normalizedBody.startsWith('/generarreporte')) {
     const currentUser = getUser(senderId);
