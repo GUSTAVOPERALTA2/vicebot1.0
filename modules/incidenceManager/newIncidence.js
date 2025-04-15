@@ -3,7 +3,7 @@ const incidenceDB = require('./incidenceDB');
 const { MessageMedia } = require('whatsapp-web.js');
 const moment = require('moment-timezone');
 const { v4: uuidv4 } = require('uuid');
-// Importamos las funciones de stringUtils para normalizar y comparar cadenas
+// Importamos las funciones para normalizar y comparar cadenas
 const { normalizeText, similarity } = require('../../config/stringUtils');
 
 async function processNewIncidence(client, message) {
@@ -11,19 +11,22 @@ async function processNewIncidence(client, message) {
   const chatId = chat.id._serialized;
   console.log("Procesando mensaje de Grupo de Incidencias.");
 
-  // Normalizamos el cuerpo del mensaje: eliminamos diacríticos, espacios extras y pasamos a minúsculas
+  // Normaliza el cuerpo del mensaje eliminando diacríticos y convirtiendo a minúsculas
   const normalizedMessage = normalizeText(message.body);
-  // Eliminamos signos de puntuación para facilitar la separación en palabras
+  // Eliminar signos de puntuación para obtener un conjunto limpio de palabras
   const cleanedMessage = normalizedMessage.replace(/[.,!?()]/g, '');
+  console.log(`Mensaje original: "${message.body}"`);
+  console.log(`Mensaje normalizado y limpio: "${cleanedMessage}"`);
+
   if (!cleanedMessage.trim()) {
     console.log("El mensaje está vacío tras la limpieza. Se omite.");
     return;
   }
-  // Convertimos el mensaje a un conjunto de palabras (ya normalizadas)
+  // Convertir el mensaje en un conjunto de palabras
   const wordsSet = new Set(cleanedMessage.split(/\s+/));
-  console.log("Conjunto de palabras:", wordsSet);
+  console.log("Conjunto de palabras del mensaje:", wordsSet);
 
-  // Se evaluarán las categorías válidas para incidencias: it, ama y man
+  // Se evaluarán las categorías válidas para incidencias
   const categories = ['it', 'ama', 'man'];
   let foundCategories = [];
   const keywordsData = client.keywordsData;
@@ -31,18 +34,33 @@ async function processNewIncidence(client, message) {
     const data = keywordsData.identificadores[category];
     if (!data) continue;
     
-    // Verificar palabras:
-    // Por cada keyword definida, se comparan las palabras del mensaje usando la función similarity,
-    // considerándose "igual" si la similitud es al menos 0.8 (80%).
+    // Comparación de palabras clave: se recorre cada palabra clave definida
     const foundKeyword = data.palabras.some(keyword => {
-      return Array.from(wordsSet).some(word => similarity(word, keyword) >= 0.8);
+      const normalizedKeyword = normalizeText(keyword);
+      let keywordFound = false;
+      // Iteramos sobre cada palabra del mensaje y calculamos la similitud
+      Array.from(wordsSet).forEach(word => {
+        const sim = similarity(word, normalizedKeyword);
+        console.log(`Comparando palabra del mensaje: "${word}" vs keyword: "${normalizedKeyword}" → Similitud: ${sim}`);
+        if (sim >= 0.8) {
+          keywordFound = true;
+        }
+      });
+      if (keywordFound) {
+        console.log(`Coincidencia detectada en categoría "${category}" para la palabra clave: "${keyword}"`);
+      }
+      return keywordFound;
     });
 
-    // Verificar frases:
-    // Se normaliza la frase y se comprueba si está contenida en el mensaje normalizado
-    const foundPhrase = data.frases.some(phrase => normalizedMessage.includes(normalizeText(phrase)));
-
-    console.log(`Evaluando categoría ${category}: foundKeyword=${foundKeyword}, foundPhrase=${foundPhrase}`);
+    // Comparación de frases: se normaliza la frase y se verifica si está contenida en el mensaje normalizado
+    const foundPhrase = data.frases.some(phrase => {
+      const normalizedPhrase = normalizeText(phrase);
+      const included = normalizedMessage.includes(normalizedPhrase);
+      console.log(`Verificando frase clave: "${phrase}" (normalizada: "${normalizedPhrase}") → Incluida en mensaje: ${included}`);
+      return included;
+    });
+    
+    console.log(`Evaluando categoría "${category}": foundKeyword=${foundKeyword}, foundPhrase=${foundPhrase}`);
     if (foundKeyword || foundPhrase) {
       foundCategories.push(category);
     }
@@ -53,7 +71,7 @@ async function processNewIncidence(client, message) {
     console.log("No se encontró ninguna categoría en el mensaje.");
     return;
   }
-  console.log(`Registrando incidencia para categorías ${foundCategories.join(', ')}: ${message.body}`);
+  console.log(`Registrando incidencia para las categorías ${foundCategories.join(', ')}: "${message.body}"`);
 
   let confirmaciones = null;
   if (foundCategories.length > 1) {
@@ -78,7 +96,7 @@ async function processNewIncidence(client, message) {
     }
   }
   
-  // Generamos un identificador único y extraemos el id original del mensaje
+  // Generamos un identificador único y obtenemos el id original del mensaje
   const uniqueMessageId = uuidv4();
   const originalMsgId = message.id._serialized;
 
@@ -138,7 +156,7 @@ async function processNewIncidence(client, message) {
       } else if (teams.length >= 3) {
         teamList = teams.slice(0, teams.length - 1).join(", ") + " y " + teams[teams.length - 1];
       }
-      // Enviamos confirmación al usuario con el ID de incidencia
+      // Se envía mensaje de confirmación al usuario con el ID de la incidencia
       await chat.sendMessage(`El mensaje se ha enviado al equipo de ${teamList}.\nID: ${lastID}`);
     }
   });
