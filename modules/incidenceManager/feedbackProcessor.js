@@ -3,6 +3,8 @@ const moment = require('moment');
 const config = require('../../config/config');
 // Importamos processConfirmation para delegar el procesamiento de confirmaciones
 const { processConfirmation } = require('./confirmationProcessor');
+const { normalizeText, adaptiveSimilarityCheck } = require('../../config/stringUtils');
+
 
 /**
  * detectFeedbackRequest - Detecta si un mensaje que cita una incidencia
