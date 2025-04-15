@@ -3,17 +3,15 @@ const incidenceDB = require('./incidenceDB');
 const { MessageMedia } = require('whatsapp-web.js');
 const moment = require('moment-timezone');
 const { v4: uuidv4 } = require('uuid');
-// Importamos las funciones para normalizar y comparar cadenas
-const { normalizeText, similarity } = require('../../config/stringUtils');
+// Importamos funciones de stringUtils
+const { normalizeText, similarity, SIMILARITY_THRESHOLD } = require('../../config/stringUtils');
 
 async function processNewIncidence(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
   console.log("Procesando mensaje de Grupo de Incidencias.");
 
-  // Normaliza el cuerpo del mensaje eliminando diacríticos y convirtiendo a minúsculas
   const normalizedMessage = normalizeText(message.body);
-  // Eliminar signos de puntuación para obtener un conjunto limpio de palabras
   const cleanedMessage = normalizedMessage.replace(/[.,!?()]/g, '');
   console.log(`Mensaje original: "${message.body}"`);
   console.log(`Mensaje normalizado y limpio: "${cleanedMessage}"`);
@@ -22,11 +20,9 @@ async function processNewIncidence(client, message) {
     console.log("El mensaje está vacío tras la limpieza. Se omite.");
     return;
   }
-  // Convertir el mensaje en un conjunto de palabras
   const wordsSet = new Set(cleanedMessage.split(/\s+/));
   console.log("Conjunto de palabras del mensaje:", wordsSet);
 
-  // Se evaluarán las categorías válidas para incidencias
   const categories = ['it', 'ama', 'man'];
   let foundCategories = [];
   const keywordsData = client.keywordsData;
@@ -34,15 +30,13 @@ async function processNewIncidence(client, message) {
     const data = keywordsData.identificadores[category];
     if (!data) continue;
     
-    // Comparación de palabras clave: se recorre cada palabra clave definida
     const foundKeyword = data.palabras.some(keyword => {
       const normalizedKeyword = normalizeText(keyword);
       let keywordFound = false;
-      // Iteramos sobre cada palabra del mensaje y calculamos la similitud
       Array.from(wordsSet).forEach(word => {
         const sim = similarity(word, normalizedKeyword);
         console.log(`Comparando palabra del mensaje: "${word}" vs keyword: "${normalizedKeyword}" → Similitud: ${sim}`);
-        if (sim >= 0.8) {
+        if (sim >= SIMILARITY_THRESHOLD) {
           keywordFound = true;
         }
       });
@@ -52,7 +46,6 @@ async function processNewIncidence(client, message) {
       return keywordFound;
     });
 
-    // Comparación de frases: se normaliza la frase y se verifica si está contenida en el mensaje normalizado
     const foundPhrase = data.frases.some(phrase => {
       const normalizedPhrase = normalizeText(phrase);
       const included = normalizedMessage.includes(normalizedPhrase);
@@ -96,7 +89,6 @@ async function processNewIncidence(client, message) {
     }
   }
   
-  // Generamos un identificador único y obtenemos el id original del mensaje
   const uniqueMessageId = uuidv4();
   const originalMsgId = message.id._serialized;
 
@@ -119,7 +111,6 @@ async function processNewIncidence(client, message) {
     } else {
       console.log("Incidencia registrada con ID:", lastID);
 
-      // Función para reenviar la incidencia a los grupos destino según la categoría
       async function forwardMessage(targetGroupId, categoryLabel) {
         try {
           const targetChat = await client.getChatById(targetGroupId);
@@ -156,7 +147,6 @@ async function processNewIncidence(client, message) {
       } else if (teams.length >= 3) {
         teamList = teams.slice(0, teams.length - 1).join(", ") + " y " + teams[teams.length - 1];
       }
-      // Se envía mensaje de confirmación al usuario con el ID de la incidencia
       await chat.sendMessage(`El mensaje se ha enviado al equipo de ${teamList}.\nID: ${lastID}`);
     }
   });

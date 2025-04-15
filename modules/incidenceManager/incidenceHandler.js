@@ -2,8 +2,8 @@ const config = require('../../config/config');
 const { processNewIncidence } = require('./newIncidence');
 const { handleFeedbackRequestFromOrigin, processTeamFeedbackResponse } = require('./feedbackProcessor');
 const { processConfirmation } = require('./confirmationProcessor');
-// Importamos las funciones de stringUtils para normalizar y comparar
-const { normalizeText, similarity } = require('../../config/stringUtils');
+// Importamos funciones de stringUtils
+const { normalizeText, similarity, SIMILARITY_THRESHOLD } = require('../../config/stringUtils');
 
 async function handleIncidence(client, message) {
   const chat = await message.getChat();
@@ -13,33 +13,27 @@ async function handleIncidence(client, message) {
   if (chatId === config.groupPruebaId) {
     if (message.hasQuotedMsg) {
       const quotedMessage = await message.getQuotedMessage();
-      // Se eliminan los asteriscos y se normaliza el texto para quitar acentos, espacios extras y pasar a minúsculas
       const normalizedQuoted = normalizeText(quotedMessage.body.replace(/\*/g, ''));
       console.log(`Mensaje citado normalizado: "${normalizedQuoted}"`);
 
-      // Si el mensaje citado es un recordatorio, se procesa como confirmación.
       if (normalizedQuoted.startsWith("recordatorio: tarea incompleta")) {
         console.log("Recordatorio detectado en grupo principal, redirigiendo a processConfirmation.");
         await processConfirmation(client, message);
         return;
       }
-
-      // Si el mensaje citado es una nueva tarea, también se procesa como confirmación.
       if (normalizedQuoted.startsWith("nueva tarea recibida")) {
         console.log("Nueva tarea detectada en grupo principal, redirigiendo a processConfirmation.");
         await processConfirmation(client, message);
         return;
       }
 
-      // Si es una solicitud de retroalimentación, se procede a revisar
       const normalizedText = normalizeText(message.body);
       console.log(`Mensaje principal normalizado para revisión de retro: "${normalizedText}"`);
-      
       const retroPhrases = client.keywordsData.retro?.frases || [];
       const retroWords = client.keywordsData.retro?.palabras || [];
       let foundIndicator = false;
 
-      // Verificar coincidencia con frases clave de retro
+      // Comprobación de frases
       for (let phrase of retroPhrases) {
         const normalizedPhrase = normalizeText(phrase);
         const includesPhrase = normalizedText.includes(normalizedPhrase);
@@ -51,17 +45,17 @@ async function handleIncidence(client, message) {
         }
       }
 
-      // Si no se encontró con frases, evaluamos palabra por palabra usando similitud
+      // Si no se encontró con frases, se evalúan las palabras
       if (!foundIndicator) {
         const responseWords = normalizedText.split(/\s+/);
         for (let keyword of retroWords) {
           const normalizedKeyword = normalizeText(keyword);
-          for (let msgWord of responseWords) {
-            const sim = similarity(msgWord, normalizedKeyword);
-            console.log(`Comparando palabra: "${msgWord}" vs "${normalizedKeyword}" → Similitud: ${sim}`);
-            if (sim >= 0.8) {
+          for (let word of responseWords) {
+            const sim = similarity(word, normalizedKeyword);
+            console.log(`Comparando retro palabra: "${word}" vs "${normalizedKeyword}" → Similitud: ${sim}`);
+            if (sim >= SIMILARITY_THRESHOLD) {
               foundIndicator = true;
-              console.log(`Coincidencia detectada: La palabra "${msgWord}" se parece a "${normalizedKeyword}" (similitud: ${sim})`);
+              console.log(`Retro palabra detectada: "${word}" coincide con "${normalizedKeyword}" con similitud ${sim}`);
               break;
             }
           }
@@ -78,11 +72,7 @@ async function handleIncidence(client, message) {
         return;
       }
     }
-
-    // Si no hay mensaje citado, se procesa como nueva incidencia.
     await processNewIncidence(client, message);
-
-  // Mensajes provenientes de grupos destino (IT, Mantenimiento, Ama de Llaves)
   } else if ([config.groupBotDestinoId, config.groupMantenimientoId, config.groupAmaId].includes(chatId)) {
     await processTeamFeedbackResponse(client, message);
   } else {
@@ -91,5 +81,3 @@ async function handleIncidence(client, message) {
 }
 
 module.exports = { handleIncidence };
-
-//logs
