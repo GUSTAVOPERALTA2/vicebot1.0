@@ -468,17 +468,43 @@ async function getFeedbackConfirmationMessage(identifier) {
  * usando la categoría "retro".
  */
 async function detectRetroRequest(client, message) {
-  const responseText = message.body.toLowerCase();
+  // Normalizamos el mensaje completo
+  const normalizedText = normalizeText(message.body);
   const retroData = client.keywordsData.identificadores.retro;
   if (!retroData) {
     console.log("No existe la categoría 'retro' en las keywords.");
     return false;
   }
-  const responseWords = new Set(responseText.split(/\s+/));
-  const foundKeyword = retroData.palabras.some(word => responseWords.has(word.toLowerCase()));
-  const foundPhrase = retroData.frases.some(phrase => responseText.includes(phrase.toLowerCase()));
-  console.log(`Retro: foundKeyword=${foundKeyword}, foundPhrase=${foundPhrase}`);
-  return foundKeyword || foundPhrase;
+  
+  let found = false;
+  // Separamos el mensaje en tokens (palabras)
+  const tokens = normalizedText.split(/\s+/);
+  
+  // Verificamos las palabras definidas en retro.palabras
+  for (let keyword of retroData.palabras) {
+    const normalizedKeyword = normalizeText(keyword);
+    for (const token of tokens) {
+      if (adaptiveSimilarityCheck(token, normalizedKeyword)) {
+        console.log(`Retro detectado: "${token}" coincide parcialmente con "${keyword}"`);
+        found = true;
+        break;
+      }
+    }
+    if (found) break;
+  }
+  
+  // Si no se encontró en palabras, comprobamos las frases
+  if (!found) {
+    for (let phrase of retroData.frases) {
+      if (normalizedText.includes(normalizeText(phrase))) {
+        console.log(`Retro detectado: el mensaje incluye la frase "${phrase}"`);
+        found = true;
+        break;
+      }
+    }
+  }
+  
+  return found;
 }
 
 /**
