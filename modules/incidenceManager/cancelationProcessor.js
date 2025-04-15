@@ -1,45 +1,53 @@
+// cancelationProcessor.js
+
 const incidenceDB = require('./incidenceDB');
 const { getUser } = require('../../config/userManager');
+const { normalizeText, adaptiveSimilarityCheck } = require('../../config/stringUtils');
 
 /**
  * processCancelationNewMethod - Procesa una solicitud de cancelación mediante la cita de un mensaje.
  *
- * Si se cita un mensaje y el texto del mensaje de respuesta (exacto) coincide con alguna palabra o frase
- * de cancelación definidas en keywords.json, se busca la incidencia asociada:
- *
- * - Si el mensaje citado es el generado por /tareaDetalles (empieza con "*Detalles de la incidencia"),
- *   se extrae el ID de la incidencia del mensaje.
- * - De lo contrario, se utiliza el id del mensaje citado para buscar la incidencia mediante el campo originalMsgId.
- *
- * Se valida que el usuario tenga permiso (reportante o admin) y que la incidencia esté en estado "pendiente".
- * Luego se cancela la incidencia.
- *
- * @param {Object} client - Cliente de WhatsApp.
- * @param {Object} message - Mensaje recibido con la solicitud de cancelación.
- * @returns {Promise<boolean>} - Devuelve true si se procesó la cancelación, false en caso contrario.
+ * Se adapta para que la comparación se haga de forma parcial utilizando fuzzy matching.
  */
 async function processCancelationNewMethod(client, message) {
   const chat = await message.getChat();
-  const text = message.body.toLowerCase().trim();
-
+  // Normalizamos el cuerpo del mensaje
+  const text = normalizeText(message.body);
+  
   // Obtenemos las palabras y frases de cancelación definidas en keywords.json
   const cancelacionData = client.keywordsData.cancelacion;
   if (!cancelacionData) {
     return false;
   }
   
-  // Se activa este método si se cita un mensaje y el contenido EXACTO del mensaje es una de las palabras/frases definidas.
-  const validCancel = cancelacionData.palabras.includes(text) || cancelacionData.frases.includes(text);
+  // Recorremos las palabras de cancelación y comprobamos si el mensaje tiene similitud parcial
+  let validCancel = false;
+  for (let word of cancelacionData.palabras) {
+    if (adaptiveSimilarityCheck(text, normalizeText(word))) {
+      console.log(`Cancelación detectada: "${text}" coincide parcialmente con "${word}"`);
+      validCancel = true;
+      break;
+    }
+  }
+  
+  // Si no se encontró en palabras, comprobamos las frases
+  if (!validCancel) {
+    for (let phrase of cancelacionData.frases) {
+      const normalizedPhrase = normalizeText(phrase);
+      if (text.includes(normalizedPhrase)) {
+        console.log(`Cancelación detectada: "${text}" incluye la frase "${phrase}"`);
+        validCancel = true;
+        break;
+      }
+    }
+  }
   
   if (message.hasQuotedMsg && validCancel) {
     const quotedMessage = await message.getQuotedMessage();
-    const quotedText = quotedMessage.body.toLowerCase();
     let incidenceLookupMethod = null;
     let incidenceLookupId = null;
     
-    // Si el mensaje citado es el generado por /tareaDetalles, se espera que comience con "*Detalles de la incidencia"
-    if (quotedText.startsWith("*detalles de la incidencia")) {
-      // Se extrae el ID usando una expresión regular. Se asume que el mensaje contiene "ID: <número>"
+    if (quotedMessage.body.toLowerCase().startsWith("*detalles de la incidencia")) {
       const match = quotedMessage.body.match(/ID:\s*(\d+)/i);
       if (match) {
         incidenceLookupMethod = 'byId';
@@ -49,7 +57,6 @@ async function processCancelationNewMethod(client, message) {
         return true;
       }
     } else {
-      // Si no es mensaje de detalles, se utiliza el id del mensaje citado para buscar la incidencia mediante originalMsgId
       incidenceLookupMethod = 'byOriginalMsgId';
       incidenceLookupId = quotedMessage.id._serialized;
     }
@@ -104,5 +111,3 @@ async function processCancelationNewMethod(client, message) {
 }
 
 module.exports = { processCancelationNewMethod };
-
-//tareaDetalles
