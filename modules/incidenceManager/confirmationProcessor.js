@@ -53,14 +53,19 @@ async function processConfirmation(client, message) {
   console.log("ID extraído del mensaje citado:", incidenciaId);
 
   // Validar que el mensaje de confirmación contenga palabras clave de confirmación.
-  const responseText = message.body.toLowerCase();
-  const responseWords = new Set(responseText.split(/\s+/));
+
+  // Normalizamos el texto de respuesta y lo tokenizamos para comparación fuzzy
+  const normalizedResponseText = normalizeText(message.body);
+  const tokens = normalizedResponseText.split(/\s+/);
+  // Verificamos las frases de confirmación (comparación exacta sobre el texto normalizado)
   const confirmPhraseFound = client.keywordsData.respuestas.confirmacion.frases.some(phrase =>
-    responseText.includes(phrase.toLowerCase())
+    normalizedResponseText.includes(normalizeText(phrase))
   );
-  const confirmWordFound = client.keywordsData.respuestas.confirmacion.palabras.some(word =>
-    responseWords.has(word.toLowerCase())
-  );
+  // Verificamos las palabras de confirmación usando la comparación adaptativa
+  const confirmWordFound = client.keywordsData.respuestas.confirmacion.palabras.some(word => {
+    const normalizedWord = normalizeText(word);
+    return tokens.some(token => adaptiveSimilarityCheck(token, normalizedWord));
+  });
   console.log(`Confirmación detectada: confirmPhraseFound=${confirmPhraseFound}, confirmWordFound=${confirmWordFound}`);
   if (!(confirmPhraseFound || confirmWordFound)) {
     console.log("No se detectó confirmación en el mensaje. Se ignora.");
