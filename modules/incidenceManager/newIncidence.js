@@ -39,7 +39,7 @@ async function processNewIncidence(client, message) {
       let keywordFound = false;
       Array.from(wordsSet).forEach(word => {
         const sim = similarity(word, normalizedKeyword);
-        //console.log(`Comparando palabra del mensaje: "${word}" vs keyword: "${normalizedKeyword}" → Similitud: ${sim}`);
+        console.log(`Comparando palabra del mensaje: "${word}" vs keyword: "${normalizedKeyword}" → Similitud: ${sim}`);
         if (adaptiveSimilarityCheck(word, normalizedKeyword)) {
           keywordFound = true;
         }
@@ -160,5 +160,3 @@ async function processNewIncidence(client, message) {
 }
 
 module.exports = { processNewIncidence };
-
-//nuevo newIncidence

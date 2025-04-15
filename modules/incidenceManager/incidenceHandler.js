@@ -55,7 +55,7 @@ async function handleIncidence(client, message) {
           const normalizedKeyword = normalizeText(keyword);
           for (let word of responseWords) {
             const sim = similarity(word, normalizedKeyword);
-            //console.log(`Comparando retro palabra: "${word}" vs "${normalizedKeyword}" → Similitud: ${sim}`);
+            console.log(`Comparando retro palabra: "${word}" vs "${normalizedKeyword}" → Similitud: ${sim}`);
             // Se utiliza la función adaptativa, que aplica un umbral según la longitud
             if (adaptiveSimilarityCheck(word, normalizedKeyword)) {
               foundIndicator = true;
@@ -89,5 +89,3 @@ async function handleIncidence(client, message) {
 }
 
 module.exports = { handleIncidence };
-
-//nuevo hadler
