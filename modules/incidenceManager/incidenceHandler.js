@@ -1,15 +1,9 @@
-// vicebot/modules/incidenceManager/incidenceHandler.js
 const config = require('../../config/config');
 const { processNewIncidence } = require('./newIncidence');
 const { handleFeedbackRequestFromOrigin, processTeamFeedbackResponse } = require('./feedbackProcessor');
 const { processConfirmation } = require('./confirmationProcessor');
-
-/**
- * Función auxiliar para normalizar texto: lo recorta y lo pasa a minúsculas.
- */
-function normalizeText(text) {
-  return text.trim().toLowerCase();
-}
+// Importamos la función normalizeText desde el nuevo módulo stringUtils
+const { normalizeText } = require('../../config/stringUtils');
 
 async function handleIncidence(client, message) {
   const chat = await message.getChat();
@@ -19,34 +13,37 @@ async function handleIncidence(client, message) {
   if (chatId === config.groupPruebaId) {
     if (message.hasQuotedMsg) {
       const quotedMessage = await message.getQuotedMessage();
-      const normalizedQuoted = quotedMessage.body.replace(/\*/g, '').trim().toLowerCase(); // ✅ CORREGIDO
-
-      // Si el mensaje citado es un recordatorio, se procesa como confirmación
+      // Se eliminan los asteriscos y se normaliza el texto (eliminando acentos, espacios extras y pasándolo a minúsculas)
+      const normalizedQuoted = normalizeText(quotedMessage.body.replace(/\*/g, ''));
+      
+      // Si el mensaje citado es un recordatorio, se procesa como confirmación.
       if (normalizedQuoted.startsWith("recordatorio: tarea incompleta")) {
         console.log("Recordatorio detectado en grupo principal, redirigiendo a processConfirmation.");
         await processConfirmation(client, message);
         return;
       }
 
-      // Si el mensaje citado es una nueva tarea, también se permite confirmar
+      // Si el mensaje citado es una nueva tarea, se procesa como confirmación.
       if (normalizedQuoted.startsWith("nueva tarea recibida")) {
         console.log("Nueva tarea detectada en grupo principal, redirigiendo a processConfirmation.");
         await processConfirmation(client, message);
         return;
       }
 
-      // Si es una solicitud de retroalimentación
+      // Si es una solicitud de retroalimentación, se normaliza el cuerpo del mensaje.
       const normalizedText = normalizeText(message.body);
       const retroPhrases = client.keywordsData.retro?.frases || [];
       const retroWords = client.keywordsData.retro?.palabras || [];
 
       let foundIndicator = false;
+      // Se verifica si alguna de las frases está contenida en el mensaje (usando normalización)
       for (let phrase of retroPhrases) {
         if (normalizedText.includes(normalizeText(phrase))) {
           foundIndicator = true;
           break;
         }
       }
+      // En caso de no encontrar coincidencia en frases, se evalúa palabra por palabra
       if (!foundIndicator) {
         const responseWords = new Set(normalizedText.split(/\s+/));
         for (let word of retroWords) {
@@ -67,10 +64,10 @@ async function handleIncidence(client, message) {
       }
     }
 
-    // Si no hay mensaje citado, procesar como nueva incidencia
+    // Si no hay mensaje citado, se procesa como una nueva incidencia.
     await processNewIncidence(client, message);
 
-  // Mensajes provenientes de grupos destino
+  // Mensajes provenientes de grupos destino (IT, Mantenimiento, Ama de Llaves)
   } else if ([config.groupBotDestinoId, config.groupMantenimientoId, config.groupAmaId].includes(chatId)) {
     await processTeamFeedbackResponse(client, message);
   } else {
@@ -79,3 +76,5 @@ async function handleIncidence(client, message) {
 }
 
 module.exports = { handleIncidence };
+
+//nuevo
