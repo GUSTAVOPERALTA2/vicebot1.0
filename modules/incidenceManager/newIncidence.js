@@ -3,14 +3,15 @@ const incidenceDB = require('./incidenceDB');
 const { MessageMedia } = require('whatsapp-web.js');
 const moment = require('moment-timezone');
 const { v4: uuidv4 } = require('uuid');
-// Importamos funciones de stringUtils
-const { normalizeText, similarity, SIMILARITY_THRESHOLD } = require('../../config/stringUtils');
+// Importamos funciones de stringUtils incluyendo la adaptativa
+const { normalizeText, similarity, adaptiveSimilarityCheck } = require('../../config/stringUtils');
 
 async function processNewIncidence(client, message) {
   const chat = await message.getChat();
   const chatId = chat.id._serialized;
   console.log("Procesando mensaje de Grupo de Incidencias.");
 
+  // Normalizamos y limpiamos el mensaje eliminando diacríticos y signos de puntuación
   const normalizedMessage = normalizeText(message.body);
   const cleanedMessage = normalizedMessage.replace(/[.,!?()]/g, '');
   console.log(`Mensaje original: "${message.body}"`);
@@ -20,9 +21,11 @@ async function processNewIncidence(client, message) {
     console.log("El mensaje está vacío tras la limpieza. Se omite.");
     return;
   }
+  // Se crea un conjunto de palabras del mensaje
   const wordsSet = new Set(cleanedMessage.split(/\s+/));
   console.log("Conjunto de palabras del mensaje:", wordsSet);
 
+  // Se evalúan las categorías para incidencias: it, ama y man
   const categories = ['it', 'ama', 'man'];
   let foundCategories = [];
   const keywordsData = client.keywordsData;
@@ -30,13 +33,14 @@ async function processNewIncidence(client, message) {
     const data = keywordsData.identificadores[category];
     if (!data) continue;
     
+    // Evaluación de palabras clave: se recorre cada palabra clave
     const foundKeyword = data.palabras.some(keyword => {
       const normalizedKeyword = normalizeText(keyword);
       let keywordFound = false;
       Array.from(wordsSet).forEach(word => {
         const sim = similarity(word, normalizedKeyword);
         console.log(`Comparando palabra del mensaje: "${word}" vs keyword: "${normalizedKeyword}" → Similitud: ${sim}`);
-        if (sim >= SIMILARITY_THRESHOLD) {
+        if (adaptiveSimilarityCheck(word, normalizedKeyword)) {
           keywordFound = true;
         }
       });
@@ -46,6 +50,7 @@ async function processNewIncidence(client, message) {
       return keywordFound;
     });
 
+    // Evaluación de frases clave
     const foundPhrase = data.frases.some(phrase => {
       const normalizedPhrase = normalizeText(phrase);
       const included = normalizedMessage.includes(normalizedPhrase);
@@ -89,6 +94,7 @@ async function processNewIncidence(client, message) {
     }
   }
   
+  // Generar identificador único y preparar la incidencia
   const uniqueMessageId = uuidv4();
   const originalMsgId = message.id._serialized;
 
@@ -111,6 +117,7 @@ async function processNewIncidence(client, message) {
     } else {
       console.log("Incidencia registrada con ID:", lastID);
 
+      // Función para reenviar la incidencia a los grupos destino
       async function forwardMessage(targetGroupId, categoryLabel) {
         try {
           const targetChat = await client.getChatById(targetGroupId);
@@ -153,3 +160,5 @@ async function processNewIncidence(client, message) {
 }
 
 module.exports = { processNewIncidence };
+
+//nuevo newIncidence
