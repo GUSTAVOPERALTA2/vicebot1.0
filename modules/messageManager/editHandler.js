@@ -1,57 +1,57 @@
 // modules/messageManager/editHandler.js
-
 const incidenceDB = require('../../modules/incidenceManager/incidenceDB');
 const config      = require('../../config/config');
 
-/**
- * Registra el listener para ediciones de mensaje.
- * - Vuelve a detectar categorías.
- * - Actualiza descripción y categoría en la BD.
- * - (Opcional) Notifica al grupo principal si cambia de categoría.
- */
 function setupEditHandler(client) {
-  client.on('message_edit', async (msg, newBody) => {
+  client.on('message', async message => {
     try {
-      const msgId = msg.id._serialized;
-      console.log(`Mensaje editado ${msgId}: "${newBody}"`);
+      // 1) ¿Existe ya una incidencia con este originalMsgId?
+      const inc = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(
+        message.id._serialized
+      );
+      if (!inc) return;  // no es edición, es mensaje nuevo
 
-      // 1) Buscar la incidencia por originalMsgId
-      const inc = await incidenceDB.buscarIncidenciaPorOriginalMsgIdAsync(msgId);
-      if (!inc) return;
+      console.log(
+        `Mensaje editado detectado (incidencia ${inc.id}): "${message.body}"`
+      );
 
-      // 2) Re-detectar categorías sobre newBody
-      const text = newBody.toLowerCase();
+      // 2) Recalcular categorías según el texto nuevo
+      const text = message.body.toLowerCase();
       const cats = [];
-      for (const cat of ['it','man','ama']) {
-        const data = client.keywordsData.identificadores[cat] || { palabras:[], frases:[] };
+      for (const cat of ['it', 'man', 'ama']) {
+        const data = client.keywordsData.identificadores[cat];
+        if (!data) continue;
         const hasWord   = data.palabras.some(w => text.includes(w));
         const hasPhrase = data.frases .some(f => text.includes(f));
         if (hasWord || hasPhrase) cats.push(cat);
       }
       const newCategoria = cats.join(',');
 
-      // 3) Si la categoría cambió, actualizarla
+      // 3) Si cambió la categoría, actualízala en BD
       if (newCategoria && newCategoria !== inc.categoria) {
         incidenceDB.updateCategoria(inc.id, newCategoria, err => {
-          if (err) console.error('Error al actualizar categoría:', err);
-          else console.log(`Incidencia ${inc.id} recategorizada: ${inc.categoria} → ${newCategoria}`);
+          if (err) console.error(err);
+          else {
+            console.log(
+              `Categoria de incidencia ${inc.id}: ${inc.categoria} → ${newCategoria}`
+            );
+            client
+              .getChatById(config.groupPruebaId)
+              .then(main => main.sendMessage(
+                `*Incidencia ${inc.id} recategorizada:* ${inc.categoria} → ${newCategoria}`
+              ));
+          }
         });
-        // Opcional: notificar al grupo principal
-        client.getChatById(config.groupPruebaId)
-          .then(c => c.sendMessage(
-            `Incidencia *${inc.id}* recategorizada:\n${inc.categoria} → ${newCategoria}`
-          ))
-          .catch(() => {});
       }
 
-      // 4) Actualizar la descripción
-      incidenceDB.updateDescripcion(inc.id, newBody, err => {
-        if (err) console.error('Error al actualizar descripción:', err);
+      // 4) Actualizar descripción siempre
+      incidenceDB.updateDescripcion(inc.id, message.body, err => {
+        if (err) console.error(err);
         else console.log(`Descripción de incidencia ${inc.id} actualizada.`);
       });
 
     } catch (e) {
-      console.error('Error en editHandler:', e);
+      console.error("Error en editHandler:", e);
     }
   });
 }

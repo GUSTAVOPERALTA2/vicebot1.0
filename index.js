@@ -3,11 +3,10 @@ const qrcode = require('qrcode-terminal');
 const { startReminder } = require('./config/autoReminder');
 const { loadKeywords } = require('./config/keywordsManager');
 const incidenciasDB = require('./modules/incidenceManager/incidenceDB');
+const { setupEditHandler } = require('./modules/messageManager/editHandler');
 
 // Inicializamos la base de datos SQLite
 incidenciasDB.initDB();
-//Se inicia el manejador de ediciones
-const { setupEditHandler } = require('./modules/messageManager/editHandler');
 // Creamos el cliente de WhatsApp con autenticación local
 const client = new Client({
   authStrategy: new LocalAuth()
