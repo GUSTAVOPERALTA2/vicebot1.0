@@ -585,7 +585,6 @@ async function handleCommands(client, message) {
           }
           detailMessage += `\n*Comentarios:*\n${comentarios}`;
         }
-        await chat.sendMessage(detailMessage);
         if (row.media) {
           const { MessageMedia } = require('whatsapp-web.js');
           let mimetype = 'image/png';
@@ -605,6 +604,8 @@ async function handleCommands(client, message) {
           // Si quieres que el texto sea la leyenda del vídeo/imagen, usa:
           // await chat.sendMessage(media, { caption: detailMessage });
           await chat.sendMessage(media);
+        }else{
+          await chat.sendMessage(detailMessage);
         }
       }
     });
