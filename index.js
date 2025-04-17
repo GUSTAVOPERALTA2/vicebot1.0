@@ -6,7 +6,8 @@ const incidenciasDB = require('./modules/incidenceManager/incidenceDB');
 
 // Inicializamos la base de datos SQLite
 incidenciasDB.initDB();
-
+//Se inicia el manejador de ediciones
+const { setupEditHandler } = require('./modules/messageManager/editHandler');
 // Creamos el cliente de WhatsApp con autenticación local
 const client = new Client({
   authStrategy: new LocalAuth()
@@ -42,6 +43,6 @@ client.on('message', async message => {
 
 // Inicializamos el cliente para comenzar a escuchar mensajes
 client.initialize();
-
+setupEditHandler(client);
 
 //ESTRUCTURA FINAL

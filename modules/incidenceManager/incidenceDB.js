@@ -230,6 +230,17 @@ function cancelarIncidencia(incidenciaId, callback) {
     }
   });
 }
+
+function updateDescripcion(id, descripcion, callback) {
+  const sql = "UPDATE incidencias SET descripcion = ? WHERE id = ?";
+  db.run(sql, [descripcion, id], err => callback(err));
+}
+
+function updateCategoria(id, categoria, callback) {
+  const sql = "UPDATE incidencias SET categoria = ? WHERE id = ?";
+  db.run(sql, [categoria, id], err => callback(err));
+}
+
 module.exports = {
   initDB,
   getDB,
@@ -243,5 +254,7 @@ module.exports = {
   updateIncidenciaStatus,
   updateConfirmaciones,
   updateFeedbackHistory,
-  cancelarIncidencia
+  cancelarIncidencia,
+  updateDescripcion,
+  updateCategoria
 };
