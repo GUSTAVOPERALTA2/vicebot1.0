@@ -78,7 +78,7 @@ async function processNewIncidence(client, message) {
       confirmaciones[cat] = false;
     });
   }
-  
+  // Descargar la media y conservar data + mimetype
   let mediaData = null;
   if (message.hasMedia) {
     try {
@@ -108,7 +108,7 @@ async function processNewIncidence(client, message) {
     categoria: foundCategories.join(', '),
     confirmaciones: confirmaciones,
     grupoOrigen: chatId,
-    media: mediaData ? mediaData.data : null
+    media: mediaData ? JSON.stringify(mediaData) : null
   };
   
   incidenceDB.insertarIncidencia(nuevaIncidencia, async (err, lastID) => {

@@ -564,7 +564,7 @@ async function handleCommands(client, message) {
         detailMessage += `*Grupo de Origen:*\n ${row.grupoOrigen}\n`;
         detailMessage += row.media ? "*Media:*\n [Adjunta]" : "*Media:*\n No hay";
       
-          // Si la incidencia tiene múltiples categorías, agregar sección de comentarios
+        // Si la incidencia tiene múltiples categorías, agregar sección de comentarios
         const categorias = row.categoria.split(',').map(c => c.trim().toLowerCase());
         if (categorias.length > 1) {
           let comentarios = "";
@@ -588,7 +588,22 @@ async function handleCommands(client, message) {
         await chat.sendMessage(detailMessage);
         if (row.media) {
           const { MessageMedia } = require('whatsapp-web.js');
-          const media = new MessageMedia("image/png", row.media);
+          let mimetype = 'image/png';
+          let data = row.media;
+          
+          try {
+            // row.media puede ser JSON.stringify({ data, mimetype })
+            const parsed = JSON.parse(row.media);
+            if (parsed && parsed.data && parsed.mimetype) {
+              data = parsed.data;
+              mimetype = parsed.mimetype;
+            }
+          } catch (_) {
+            // formato antiguo: row.media ya es base64, asumimos image/png
+          }
+          const media = new MessageMedia(mimetype, data);
+          // Si quieres que el texto sea la leyenda del vídeo/imagen, usa:
+          // await chat.sendMessage(media, { caption: detailMessage });
           await chat.sendMessage(media);
         }
       }
