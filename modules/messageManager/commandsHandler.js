@@ -1,5 +1,6 @@
 // vicebot/modules/messageManager/commandsHandler.js
 const config = require('../../config/config');
+const groupManager = require('../../config/groupManager');
 const { addEntry, removeEntry, editEntry, loadKeywords } = require('../../config/keywordsManager');
 const WhatsappWeb = require('whatsapp-web.js'); // Importamos el módulo completo
 const fs = require('fs');
@@ -158,6 +159,68 @@ async function handleCommands(client, message) {
       });
     return true;
   }
+
+// Comando: /setMainGroup — solo admins
+if (normalizedBody.startsWith('/setmaingroup')) {
+  const currentUser = getUser(senderId);
+  if (!currentUser || currentUser.rol !== 'admin') {
+    await chat.sendMessage('No tienes permisos para ejecutar este comando.');
+    return true;
+  }
+  const chatInfo = await message.getChat();
+  const groupId = chatInfo.id._serialized;
+  groupManager.setMainGroup(groupId);
+  await chat.sendMessage(`Este chat (${chatInfo.name || groupId}) ahora es el *grupo principal*.`);
+  return true;
+}
+
+// Comando: /addDestination <categoria> — solo admins
+if (normalizedBody.startsWith('/adddestination')) {
+  const currentUser = getUser(senderId);
+  if (!currentUser || currentUser.rol !== 'admin') {
+    await chat.sendMessage('No tienes permisos para ejecutar este comando.');
+    return true;
+  }
+  const parts = body.split(' ');
+  if (parts.length < 2) {
+    await chat.sendMessage('Uso: /addDestination <categoria>');
+    return true;
+  }
+  const category = parts[1].toLowerCase();
+  const chatInfo = await message.getChat();
+  const groupId = chatInfo.id._serialized;
+  const ok = groupManager.addDestination(category, groupId);
+  if (ok) {
+    await chat.sendMessage(`Este chat (${chatInfo.name || groupId}) ha sido agregado como *destino* para la categoría *${category}*.`);
+  } else {
+    await chat.sendMessage(`Este chat ya estaba como destino para *${category}*.`);
+  }
+  return true;
+}
+
+// Comando: /removeDestination <categoria> — solo admins
+if (normalizedBody.startsWith('/removedestination')) {
+  const currentUser = getUser(senderId);
+  if (!currentUser || currentUser.rol !== 'admin') {
+    await chat.sendMessage('No tienes permisos para ejecutar este comando.');
+    return true;
+  }
+  const parts = body.split(' ');
+  if (parts.length < 2) {
+    await chat.sendMessage('Uso: /removeDestination <categoria>');
+    return true;
+  }
+  const category = parts[1].toLowerCase();
+  const chatInfo = await message.getChat();
+  const groupId = chatInfo.id._serialized;
+  const ok = groupManager.removeDestination(category, groupId);
+  if (ok) {
+    await chat.sendMessage(`Este chat ya no es destino para la categoría *${category}*.`);
+  } else {
+    await chat.sendMessage(`Este chat no estaba registrado como destino para *${category}*.`);
+  }
+  return true;
+}
 
   // Comando: /reloadkeywords
   if (normalizedBody.startsWith('/reloadkeywords')) {
